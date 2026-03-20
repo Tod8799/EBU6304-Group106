@@ -1,0 +1,351 @@
+<%@ page import="java.io.*" %>
+<%@ page import="java.nio.charset.StandardCharsets" %>
+
+<%! 
+  // Store all persisted data in a writable directory under user's home.
+  private static final String STORE_DIR = System.getProperty("user.home") + File.separator + "ta-recruitment-data";
+
+  private static File ensureDir(File dir) {
+    if (!dir.exists()) dir.mkdirs();
+    return dir;
+  }
+
+  private static File storeFile(String name) {
+    File dir = ensureDir(new File(STORE_DIR));
+    return new File(dir, name);
+  }
+
+  private static String sanitize(String s) {
+    if (s == null) return "";
+    // Avoid breaking our '|' separated format.
+    return s.replace('|', '/').replace('\r', ' ').replace('\n', ' ').trim();
+  }
+
+  private static boolean truthy(String s) {
+    if (s == null) return false;
+    String t = s.trim().toLowerCase();
+    return t.equals("true") || t.equals("1") || t.equals("yes");
+  }
+
+  private static java.util.List<String> readLines(File f) throws IOException {
+    if (!f.exists()) return new java.util.ArrayList<String>();
+    return java.nio.file.Files.readAllLines(f.toPath(), StandardCharsets.UTF_8);
+  }
+
+  private static void writeLines(File f, java.util.List<String> lines) throws IOException {
+    ensureDir(f.getParentFile());
+    java.nio.file.Files.write(f.toPath(), lines, StandardCharsets.UTF_8);
+  }
+
+  private static class Profile {
+    public String name = "";
+    public String email = "";
+    public String major = "";
+    public String skills = "";
+    public String bio = "";
+  }
+
+  private static Profile loadProfile() throws IOException {
+    File f = storeFile("profile.txt");
+    java.util.List<String> lines = readLines(f);
+    Profile p = new Profile();
+    if (lines.size() >= 1) {
+      String[] parts = lines.get(0).split("\\|", -1);
+      if (parts.length >= 5) {
+        p.name = parts[0];
+        p.email = parts[1];
+        p.major = parts[2];
+        p.skills = parts[3];
+        p.bio = parts[4];
+      }
+    }
+    return p;
+  }
+
+  private static void saveProfile(Profile p) throws IOException {
+    File f = storeFile("profile.txt");
+    java.util.List<String> lines = new java.util.ArrayList<String>();
+    lines.add(sanitize(p.name) + "|" + sanitize(p.email) + "|" + sanitize(p.major) + "|" + sanitize(p.skills) + "|" + sanitize(p.bio));
+    writeLines(f, lines);
+  }
+
+  private static class CvInfo {
+    public boolean saved = false;
+    public String fileName = "";
+    public String note = "";
+  }
+
+  private static CvInfo loadCv() throws IOException {
+    File f = storeFile("cv.txt");
+    java.util.List<String> lines = readLines(f);
+    CvInfo cv = new CvInfo();
+    if (lines.size() >= 1) {
+      String[] parts = lines.get(0).split("\\|", -1);
+      if (parts.length >= 3) {
+        cv.saved = truthy(parts[0]);
+        cv.fileName = parts[1];
+        cv.note = parts[2];
+      }
+    }
+    return cv;
+  }
+
+  private static void saveCv(CvInfo cv) throws IOException {
+    File f = storeFile("cv.txt");
+    java.util.List<String> lines = new java.util.ArrayList<String>();
+    lines.add((cv.saved ? "true" : "false") + "|" + sanitize(cv.fileName) + "|" + sanitize(cv.note));
+    writeLines(f, lines);
+  }
+
+  private static class Job {
+    public String id;
+    public String title;
+    public String module;
+    public int hoursPerWeek;
+    public String location;
+    public java.util.List<String> requiredSkills = new java.util.ArrayList<String>();
+  }
+
+  private static java.util.List<String> parseSkillsCsv(String s) {
+    java.util.List<String> out = new java.util.ArrayList<String>();
+    if (s == null) return out;
+    String[] parts = s.split(",");
+    for (String p : parts) {
+      String t = p.trim().toLowerCase();
+      if (!t.isEmpty()) out.add(t);
+    }
+    return out;
+  }
+
+  private static String skillsToCsv(java.util.List<String> skills) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < skills.size(); i++) {
+      if (i > 0) sb.append(",");
+      sb.append(skills.get(i));
+    }
+    return sb.toString();
+  }
+
+  private static java.util.List<Job> loadJobs() throws IOException {
+    File f = storeFile("jobs.txt");
+    java.util.List<String> lines = readLines(f);
+    if (lines.size() == 0) {
+      // Seed default jobs for demo.
+      java.util.List<Job> seeded = new java.util.ArrayList<Job>();
+      seeded.add(seedJob("J-001", "Calculus Tutor", "Calculus", 5, "Main Campus", java.util.Arrays.asList("Teaching", "Calculus")));
+      seeded.add(seedJob("J-002", "Programming Workshop TA", "Software Engineering", 6, "Engineering Building", java.util.Arrays.asList("Python", "Teaching")));
+      seeded.add(seedJob("J-003", "Invigilation - Midterm", "Exam Week", 4, "Central Hall", java.util.Arrays.asList("Invigilation", "Communication")));
+      saveJobs(seeded);
+      return seeded;
+    }
+
+    java.util.List<Job> jobs = new java.util.ArrayList<Job>();
+    for (String line : lines) {
+      if (line == null || line.trim().isEmpty()) continue;
+      String[] parts = line.split("\\|", -1);
+      if (parts.length >= 6) {
+        Job j = new Job();
+        j.id = parts[0];
+        j.title = parts[1];
+        j.module = parts[2];
+        j.hoursPerWeek = Integer.parseInt(parts[3]);
+        j.location = parts[4];
+        j.requiredSkills = parseSkillsCsv(parts[5]);
+        jobs.add(j);
+      }
+    }
+    return jobs;
+  }
+
+  private static Job seedJob(String id, String title, String module, int hours, String location, java.util.List<String> requiredSkills) {
+    Job j = new Job();
+    j.id = id;
+    j.title = title;
+    j.module = module;
+    j.hoursPerWeek = hours;
+    j.location = location;
+    // Store skills as lowercase for matching.
+    java.util.List<String> skillsLower = new java.util.ArrayList<String>();
+    for (String s : requiredSkills) skillsLower.add(s == null ? "" : s.trim().toLowerCase());
+    j.requiredSkills = skillsLower;
+    return j;
+  }
+
+  private static void saveJobs(java.util.List<Job> jobs) throws IOException {
+    File f = storeFile("jobs.txt");
+    java.util.List<String> lines = new java.util.ArrayList<String>();
+    for (Job j : jobs) {
+      String required = skillsToCsv(j.requiredSkills);
+      lines.add(sanitize(j.id) + "|" + sanitize(j.title) + "|" + sanitize(j.module) + "|" + j.hoursPerWeek + "|" + sanitize(j.location) + "|" + sanitize(required));
+    }
+    writeLines(f, lines);
+  }
+
+  private static class Application {
+    public String jobId;
+    public String applicantName;
+    public String jobTitle;
+    public int hoursPerWeek;
+    public boolean cvSaved;
+    public String message;
+    public String status; // Submitted / In Review / Approved / Completed
+    public boolean selected;
+  }
+
+  private static java.util.List<Application> loadApplications() throws IOException {
+    File f = storeFile("applications.txt");
+    java.util.List<String> lines = readLines(f);
+    java.util.List<Application> apps = new java.util.ArrayList<Application>();
+    for (String line : lines) {
+      if (line == null || line.trim().isEmpty()) continue;
+      String[] parts = line.split("\\|", -1);
+      if (parts.length >= 9) {
+        Application a = new Application();
+        a.jobId = parts[0];
+        a.applicantName = parts[1];
+        a.jobTitle = parts[2];
+        a.hoursPerWeek = Integer.parseInt(parts[3]);
+        a.cvSaved = truthy(parts[4]);
+        a.message = parts[5];
+        a.status = parts[6];
+        a.selected = truthy(parts[7]);
+        // parts[8] is reserved for future (kept for compatibility if needed)
+        apps.add(a);
+      }
+    }
+    return apps;
+  }
+
+  private static void saveApplications(java.util.List<Application> apps) throws IOException {
+    File f = storeFile("applications.txt");
+    java.util.List<String> lines = new java.util.ArrayList<String>();
+    for (Application a : apps) {
+      lines.add(
+        sanitize(a.jobId) + "|" +
+        sanitize(a.applicantName) + "|" +
+        sanitize(a.jobTitle) + "|" +
+        a.hoursPerWeek + "|" +
+        (a.cvSaved ? "true" : "false") + "|" +
+        sanitize(a.message) + "|" +
+        sanitize(a.status) + "|" +
+        (a.selected ? "true" : "false") + "|" +
+        "0"
+      );
+    }
+    writeLines(f, lines);
+  }
+
+  private static Job findJob(java.util.List<Job> jobs, String jobId) {
+    if (jobId == null) return null;
+    for (Job j : jobs) {
+      if (jobId.equals(j.id)) return j;
+    }
+    return null;
+  }
+
+  private static class SkillMatch {
+    public int score = 0;
+    public java.util.List<String> matched = new java.util.ArrayList<String>();
+    public java.util.List<String> missing = new java.util.ArrayList<String>();
+    public java.util.List<String> required = new java.util.ArrayList<String>();
+  }
+
+  private static SkillMatch computeSkillMatch(Job job, Profile profile) {
+    SkillMatch sm = new SkillMatch();
+    if (job == null || profile == null) return sm;
+    sm.required = job.requiredSkills == null ? new java.util.ArrayList<String>() : job.requiredSkills;
+    java.util.List<String> applicant = parseSkillsCsv(profile.skills);
+    java.util.HashSet<String> set = new java.util.HashSet<String>(applicant);
+    if (sm.required.size() == 0) {
+      sm.score = 0;
+      return sm;
+    }
+    for (String r : sm.required) {
+      if (set.contains(r)) sm.matched.add(r);
+      else sm.missing.add(r);
+    }
+    sm.score = (int)Math.round((double)sm.matched.size() / (double)sm.required.size() * 100.0);
+    return sm;
+  }
+
+  private static String statusTextForRow(Application a) {
+    if (a.selected) return "Selected";
+    return a.status;
+  }
+
+  private static void advanceStatuses(java.util.List<Application> apps) {
+    for (Application a : apps) {
+      if (a.selected) continue; // Selected stays selected
+      if ("Submitted".equals(a.status)) a.status = "In Review";
+      else if ("In Review".equals(a.status)) a.status = "Approved";
+      else if ("Approved".equals(a.status)) a.status = "Completed";
+    }
+  }
+
+  private static void selectApplicant(java.util.List<Application> apps, String jobId, String applicantName) {
+    // Rule: per job, only one applicant can be selected.
+    for (Application a : apps) {
+      if (!jobId.equals(a.jobId)) continue;
+      boolean isThis = applicantName.equals(a.applicantName);
+      a.selected = isThis;
+      if (isThis) {
+        a.status = "Approved";
+      } else {
+        // Keep it explainable in mock behaviour.
+        if ("Approved".equals(a.status)) a.status = "In Review";
+      }
+    }
+  }
+
+  private static class WorkloadRow {
+    public String applicantName;
+    public int selectedJobs;
+    public int hours;
+  }
+
+  private static java.util.List<WorkloadRow> computeWorkload(java.util.List<Application> apps) {
+    java.util.Map<String, WorkloadRow> map = new java.util.HashMap<String, WorkloadRow>();
+    for (Application a : apps) {
+      if (!a.selected) continue;
+      String key = a.applicantName == null ? "Anonymous" : a.applicantName;
+      WorkloadRow r = map.get(key);
+      if (r == null) {
+        r = new WorkloadRow();
+        r.applicantName = key;
+        r.selectedJobs = 0;
+        r.hours = 0;
+        map.put(key, r);
+      }
+      r.selectedJobs += 1;
+      r.hours += a.hoursPerWeek;
+    }
+    java.util.List<WorkloadRow> rows = new java.util.ArrayList<WorkloadRow>(map.values());
+    java.util.Collections.sort(rows, new java.util.Comparator<WorkloadRow>() {
+      public int compare(WorkloadRow x, WorkloadRow y) {
+        return Integer.compare(y.hours, x.hours);
+      }
+    });
+    return rows;
+  }
+
+  private static String workloadRiskLabel(int hours) {
+    if (hours >= 10) return "High workload";
+    if (hours >= 7) return "Medium workload";
+    return "OK";
+  }
+
+  private static String workloadRiskClass(int hours) {
+    if (hours >= 10) return "bad";
+    if (hours >= 7) return "warn";
+    return "good";
+  }
+
+  private static void resetAll() throws IOException {
+    File dir = ensureDir(new File(STORE_DIR));
+    File[] files = dir.listFiles();
+    if (files != null) {
+      for (File f : files) f.delete();
+    }
+  }
+%>
+
