@@ -1,3 +1,3 @@
-| GitHub Username |Student Name  | Qm id  |
+| GitHub Username | QMID Name |
 | --- | --- |
-|Tod8799|Xuanchen Liu| 231223450 |
+|Tod8799  | 231223380 |
