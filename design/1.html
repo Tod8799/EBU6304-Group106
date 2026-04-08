@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BUPT TA Recruitment System</title>
+    <style>
+        /* Apple-style Design System */
+        :root {
+            --bg-color: #f5f5f7;
+            --card-bg: #ffffff;
+            --text-primary: #1d1d1f;
+            --text-secondary: #86868b;
+            --apple-blue: #0071e3;
+            --apple-blue-hover: #0077ED;
+            --sidebar-bg: rgba(245, 245, 247, 0.8);
+            --border-color: #d2d2d7;
+            --success-color: #34c759;
+            --danger-color: #ff3b30;
+            --warning-bg: #fffbf0;
+            --warning-text: #8a6a00;
+        }
+
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            margin: 0; 
+            background-color: var(--bg-color); 
+            color: var(--text-primary); 
+            display: flex; 
+            height: 100vh; 
+            overflow: hidden; 
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Sidebar macOS Style */
+        .sidebar { 
+            width: 240px; 
+            background-color: var(--sidebar-bg); 
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-right: 1px solid var(--border-color); 
+            display: flex; 
+            flex-direction: column; 
+            padding-top: 20px;
+        }
+        .sidebar h2 { 
+            text-align: left; 
+            font-size: 14px; 
+            color: var(--text-secondary);
+            font-weight: 600;
+            padding: 0 20px; 
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .menu-item { 
+            padding: 8px 12px; 
+            margin: 2px 12px;
+            cursor: pointer; 
+            border-radius: 8px; 
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease; 
+        }
+        .menu-item:hover { 
+            background-color: rgba(0,0,0,0.05); 
+        }
+        .menu-item.active { 
+            background-color: var(--apple-blue); 
+            color: white; 
+        }
+        .role-indicator { 
+            margin-top: auto; 
+            padding: 15px; 
+            font-size: 12px; 
+            text-align: center; 
+            color: var(--text-secondary);
+            border-top: 1px solid var(--border-color);
+        }
+        .role-indicator a {
+            color: var(--apple-blue);
+            text-decoration: none;
+            font-weight: 600;
+            margin-top: 5px;
+            display: inline-block;
+        }
+
+        /* Main Content */
+        .main-content { 
+            flex-grow: 1; 
+            padding: 20px 40px; 
+            overflow-y: auto; 
+        }
+        .section { display: none; animation: fadeIn 0.3s ease; }
+        .section.active { display: block; }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Cards Apple Style */
+        .card { 
+            background: var(--card-bg); 
+            padding: 20px 24px; 
+            border-radius: 18px; 
+            box-shadow: 0 4px 14px rgba(0,0,0,0.03); 
+            margin-bottom: 20px; 
+            border: 1px solid rgba(255,255,255,0.5);
+        }
+        h3 { 
+            margin-top: 0; 
+            font-size: 20px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+            border-bottom: 1px solid #f0f0f0; 
+            padding-bottom: 12px; 
+            margin-bottom: 16px;
+        }
+        
+        /* Form & Inputs */
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; margin-bottom: 6px; font-weight: 500; font-size: 13px; color: var(--text-secondary); }
+        .form-group input, .form-group select, .form-group textarea { 
+            width: 100%; 
+            padding: 10px 12px; 
+            border: 1px solid var(--border-color); 
+            border-radius: 10px; 
+            box-sizing: border-box; 
+            font-family: inherit; 
+            font-size: 14px;
+            background-color: var(--card-bg);
+            transition: border 0.2s, box-shadow 0.2s;
+            color: var(--text-primary);
+        }
+        .form-group input:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: var(--apple-blue);
+            box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.2);
+        }
+        .form-group textarea { height: 70px; resize: vertical; }
+        
+        /* 🔥 NEW: Custom Apple-style File Upload Input 🔥 */
+        .form-group input[type="file"] {
+            padding: 6px 10px;
+            cursor: pointer;
+        }
+        .form-group input[type="file"]::-webkit-file-upload-button {
+            background-color: #f0f0f5;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 6px 12px;
+            margin-right: 12px;
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .form-group input[type="file"]::-webkit-file-upload-button:hover {
+            background-color: #e5e5ea;
+        }
+        
+        /* Buttons */
+        .btn { 
+            padding: 8px 16px; 
+            border: none; 
+            border-radius: 20px; 
+            cursor: pointer; 
+            font-weight: 500; 
+            font-size: 13px; 
+            transition: all 0.2s ease; 
+        }
+        .btn-primary { background-color: var(--apple-blue); color: white; }
+        .btn-primary:hover { background-color: var(--apple-blue-hover); }
+        .btn-success { background-color: var(--success-color); color: white; }
+        .btn-danger { background-color: var(--danger-color); color: white; }
+        
+        /* Minimalist Tables */
+        table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+        th, td { padding: 12px 8px; text-align: left; border-bottom: 1px solid var(--border-color); }
+        th { color: var(--text-secondary); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #c6c6c8; }
+        td strong { font-weight: 600; }
+        
+        /* AI Tags (Subtle) */
+        .ai-match { background-color: #e3f8e9; color: #1e873b; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        .ai-miss { background-color: var(--warning-bg); color: var(--warning-text); padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        .ai-warn { background-color: #ffe8e6; color: #d92b20; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        
+        /* Login Screen - iCloud Style */
+        .login-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #fbfbfd; display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .login-box { background: rgba(255,255,255,0.8); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); padding: 40px; border-radius: 24px; text-align: center; width: 360px; box-shadow: 0 10px 40px rgba(0,0,0,0.08); border: 1px solid rgba(255,255,255,0.5); }
+        .login-box h1 { font-size: 24px; font-weight: 600; margin-top: 0; margin-bottom: 8px; letter-spacing: -0.5px; }
+        .login-box p { color: var(--text-secondary); font-size: 14px; margin-bottom: 30px; }
+        .login-box button { width: 100%; margin: 8px 0; padding: 12px; font-size: 15px; border-radius: 12px; }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen" class="login-screen">
+        <div class="login-box">
+            <h1>BUPT TA System</h1>
+            <p>Sign in with your campus role</p>
+            <button class="btn btn-primary" onclick="login('TA')">Sign In as Teaching Assistant</button>
+            <button class="btn btn-primary" style="background-color: #1c1c1e;" onclick="login('MO')">Sign In as Module Organiser</button>
+            <button class="btn btn-primary" style="background-color: #86868b;" onclick="login('Admin')">Sign In as System Admin</button>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <h2>BUPT Int'l School</h2>
+        
+        <div id="menu-TA" style="display: none;">
+            <div class="menu-item active" onclick="showSection('ta-profile', this)">Profile & CV</div>
+            <div class="menu-item" onclick="showSection('ta-jobs', this)">Find Jobs</div>
+            <div class="menu-item" onclick="showSection('ta-status', this)">Application Status</div>
+        </div>
+
+        <div id="menu-MO" style="display: none;">
+            <div class="menu-item active" onclick="showSection('mo-post', this)">Post a Job</div>
+            <div class="menu-item" onclick="showSection('mo-review', this)">Review Applicants</div>
+        </div>
+
+        <div id="menu-Admin" style="display: none;">
+            <div class="menu-item active" onclick="showSection('admin-workload', this)">Workload Monitor</div>
+        </div>
+
+        <div class="role-indicator">
+            <span id="current-role-display">Not Signed In</span><br>
+            <a href="#" onclick="location.reload()">Sign Out</a>
+        </div>
+    </div>
+
+    <div class="main-content">
+
+        <div id="ta-profile" class="section">
+            <div class="card">
+                <h3>Applicant Profile</h3>
+                <div class="form-group">
+                    <label>Full Name</label>
+                    <input type="text" value="Alice Wang">
+                </div>
+                <div class="form-group">
+                    <label>Student ID</label>
+                    <input type="text" value="2024110123">
+                </div>
+                <div class="form-group">
+                    <label>Skills (Comma separated for AI Analysis)</label>
+                    <textarea>Java, Python, Agile Methodologies, Git</textarea>
+                </div>
+                <div class="form-group">
+                    <label>Resume / CV (PDF)</label>
+                    <input type="file" accept=".pdf">
+                    <span style="font-size: 12px; color: var(--text-secondary); display:block; margin-top: 6px;">Current: Alice_Wang_CV.pdf</span>
+                </div>
+                <button class="btn btn-primary" onclick="alert('Profile Saved')">Save Profile</button>
+            </div>
+        </div>
+
+        <div id="ta-jobs" class="section">
+            <div class="card">
+                <h3>Available TA Positions</h3>
+                <div class="form-group" style="display: flex; gap: 10px;">
+                    <input type="text" placeholder="Search by Module Code..." style="max-width: 300px;">
+                    <button class="btn btn-primary" style="border-radius: 10px;">Search</button>
+                </div>
+                <table>
+                    <tr>
+                        <th>Module</th>
+                        <th>Required Skills</th>
+                        <th>AI Recommendation</th>
+                        <th>Action</th>
+                    </tr>
+                    <tr>
+                        <td><strong>EBU6304</strong> - Software Engineering</td>
+                        <td>Java, Agile, Git</td>
+                        <td><span class="ai-match">95% Match</span></td>
+                        <td><button class="btn btn-success" onclick="alert('Applied')">Apply</button></td>
+                    </tr>
+                    <tr>
+                        <td><strong>EBU5001</strong> - Database Systems</td>
+                        <td>SQL, Data Modeling</td>
+                        <td><span class="ai-miss">Missing: SQL</span></td>
+                        <td><button class="btn btn-primary" style="background-color: #86868b;">Apply</button></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <div id="ta-status" class="section">
+            <div class="card">
+                <h3>Application Status</h3>
+                <table>
+                    <tr>
+                        <th>Job Applied</th>
+                        <th>Date Applied</th>
+                        <th>Status</th>
+                        <th>Feedback</th>
+                    </tr>
+                    <tr>
+                        <td>EBU6304 - Software Engineering</td>
+                        <td>Oct 12, 2026</td>
+                        <td><strong style="color: #ff9500;">In Review</strong></td>
+                        <td>-</td>
+                    </tr>
+                    <tr>
+                        <td>Exam Invigilation</td>
+                        <td>Oct 05, 2026</td>
+                        <td><strong style="color: var(--success-color);">Accepted</strong></td>
+                        <td>Briefing on Oct 15th.</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+
+        <div id="mo-post" class="section">
+            <div class="card">
+                <h3>Create New Position</h3>
+                <div style="display: flex; gap: 15px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Module Code</label>
+                        <input type="text" placeholder="e.g., EBU6304">
+                    </div>
+                    <div class="form-group" style="flex: 2;">
+                        <label>Module Name</label>
+                        <input type="text" placeholder="e.g., Software Engineering">
+                    </div>
+                </div>
+                <div style="display: flex; gap: 15px;">
+                    <div class="form-group" style="flex: 2;">
+                        <label>Required Skills</label>
+                        <input type="text" placeholder="e.g., Java, Agile">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>Weekly Hours</label>
+                        <input type="number" placeholder="e.g., 4">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea placeholder="Outline duties and responsibilities..."></textarea>
+                </div>
+                <button class="btn btn-primary" onclick="alert('Published')">Publish Position</button>
+            </div>
+        </div>
+
+        <div id="mo-review" class="section">
+            <div class="card">
+                <h3>Review Applicants</h3>
+                <div class="form-group">
+                    <select style="max-width: 300px;">
+                        <option>EBU6304 - Software Engineering</option>
+                        <option>Exam Invigilation</option>
+                    </select>
+                </div>
+
+                <table>
+                    <tr>
+                        <th>Applicant</th>
+                        <th>Resume</th>
+                        <th>AI Skill Match</th>
+                        <th>Workload</th>
+                        <th>Actions</th>
+                    </tr>
+                    <tr>
+                        <td>Alice Wang</td>
+                        <td><a href="#" style="color:var(--apple-blue);text-decoration:none;">View PDF</a></td>
+                        <td><span class="ai-match">95% Match</span></td>
+                        <td>4 hrs/wk</td>
+                        <td>
+                            <button class="btn btn-success" style="padding: 4px 12px;">Accept</button>
+                            <button class="btn btn-danger" style="padding: 4px 12px; background-color: transparent; color: var(--danger-color); border: 1px solid var(--danger-color);">Reject</button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Bob Li</td>
+                        <td><a href="#" style="color:var(--apple-blue);text-decoration:none;">View PDF</a></td>
+                        <td><span class="ai-miss">Missing: Agile</span></td>
+                        <td><span class="ai-warn">High (10 hrs)</span></td>
+                        <td>
+                            <button class="btn btn-success" style="padding: 4px 12px;">Accept</button>
+                            <button class="btn btn-danger" style="padding: 4px 12px; background-color: transparent; color: var(--danger-color); border: 1px solid var(--danger-color);">Reject</button>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+
+        <div id="admin-workload" class="section">
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f0f0f0; padding-bottom: 12px;">
+                    <h3 style="border: none; margin: 0; padding: 0;">TA Workload Monitor</h3>
+                    <button class="btn btn-primary" style="background-color: #f5f5f7; color: var(--apple-blue); border: 1px solid var(--border-color);">Run AI Analysis</button>
+                </div>
+                
+                <table>
+                    <tr>
+                        <th>Teaching Assistant</th>
+                        <th>Assigned Modules</th>
+                        <th>Total Hours</th>
+                        <th>AI Status</th>
+                    </tr>
+                    <tr>
+                        <td>Alice Wang</td>
+                        <td>EBU6304</td>
+                        <td>4 hrs</td>
+                        <td><span class="ai-match">Balanced</span></td>
+                    </tr>
+                    <tr>
+                        <td>Bob Li</td>
+                        <td>EBU5001, Invigilation</td>
+                        <td>14 hrs</td>
+                        <td><span class="ai-warn">Overloaded (>10hrs)</span></td>
+                    </tr>
+                    <tr>
+                        <td>Charlie Chen</td>
+                        <td>None</td>
+                        <td>0 hrs</td>
+                        <td><span class="ai-miss">Underutilized</span></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        function login(role) {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('current-role-display').innerText = role;
+
+            document.getElementById('menu-TA').style.display = 'none';
+            document.getElementById('menu-MO').style.display = 'none';
+            document.getElementById('menu-Admin').style.display = 'none';
+
+            if(role === 'TA') {
+                document.getElementById('menu-TA').style.display = 'block';
+                document.querySelector('#menu-TA .menu-item').click();
+            } else if(role === 'MO') {
+                document.getElementById('menu-MO').style.display = 'block';
+                document.querySelector('#menu-MO .menu-item').click();
+            } else if(role === 'Admin') {
+                document.getElementById('menu-Admin').style.display = 'block';
+                document.querySelector('#menu-Admin .menu-item').click();
+            }
+        }
+
+        function showSection(sectionId, menuItem) {
+            var sections = document.querySelectorAll('.section');
+            sections.forEach(function(sec) { sec.classList.remove('active'); });
+            
+            var menuItems = document.querySelectorAll('.menu-item');
+            menuItems.forEach(function(item) { item.classList.remove('active'); });
+
+            document.getElementById(sectionId).classList.add('active');
+            menuItem.classList.add('active');
+        }
+    </script>
+</body>
+</html>
