@@ -105,3 +105,23 @@ The output above shows that this code successfully:
 - Confirms that the total number of profiles increases after `saveOrUpdate`
 
 This demonstrates that `ProfileDAO` already supports the basic persistence, query, and update operations required for the TA profile management module.
+## Issue #3 - Tan Xiaopeng
+
+### What I implemented
+
+- **IntelliJ IDEA module configuration**: provided a `java2.iml` file that defines a Java module structure for the project.
+- **Source folder setup**: configured `src` as the source root directory (`isTestSource="false"`) so the IDE recognizes it for compilation.
+- **JDK configuration**: set to use the project-level inherited JDK (`inheritedJdk`), avoiding hardcoded local paths.
+- **Output control**: excluded default compiler output paths (`exclude-output`), delegating build output management to the IDE.
+powershell
+# Navigate to the module root directory (where java2.iml is located)
+cd path\to\java2
+
+# Create a simple Java source file inside the src folder
+echo 'public class Main { public static void main(String[] args) { System.out.println("Hello from Tan Xiaopeng, Issue #3!"); } }' > src\Main.java
+
+# Compile the Java file (javac expects source files under src)
+javac -d . src\Main.java
+
+# Run the compiled class
+java Main
