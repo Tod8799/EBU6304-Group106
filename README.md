@@ -103,8 +103,7 @@ java -cp out Main
 javac -d bin src/**/*.java
 java -cp bin Main
 
-Backend Implementation and Interface Extension Guide 
-This project utilizes the `com.sun.net.httpserver` from the Java standard library to implement a lightweight built-in server, which can run without the need to install external containers such as Tomcat. The following are its core logic and extension methods: 
+
 #### 1. Core Architecture Logic
 * **Service Startup**: When the system starts, an HTTP service instance is created and bound to the specified port (default 8080).
 * **Routing Distribution**: Utilizes a "path mapping" mechanism to distribute different URLs (such as `/api/login`) to specific handler classes for processing.
@@ -127,7 +126,6 @@ The system has an automatic hosting feature. When the received request does not 
 ## Issue #6 - Web UI Implementation  - [XuanChen Liu]
 
 ## Commit Info
-- Author: Developer C
 - Commit: `feat(web-ui): add frontend pages and interaction logic`
 - Files:
   - `web/index.html`
