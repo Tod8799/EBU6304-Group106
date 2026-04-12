@@ -59,17 +59,14 @@ javac -d out src/model/Profile.java src/dao/ProfileDAO.java src/demo/ProfileDAOD
 - **Source folder setup**: configured `src` as the source root directory (`isTestSource="false"`) so the IDE recognizes it for compilation.
 - **JDK configuration**: set to use the project-level inherited JDK (`inheritedJdk`), avoiding hardcoded local paths.
 - **Output control**: excluded default compiler output paths (`exclude-output`), delegating build output management to the IDE.
-powershell
-# Navigate to the module root directory (where java2.iml is located)
+
+### Run  (PowerShell)
 cd path\to\java2
 
-# Create a simple Java source file inside the src folder
 echo 'public class Main { public static void main(String[] args) { System.out.println("Hello from Tan Xiaopeng, Issue #3!"); } }' > src\Main.java
 
-# Compile the Java file (javac expects source files under src)
 javac -d . src\Main.java
 
-# Run the compiled class
 java Main
 
 ## Issue #4 - [Jing Luo]
@@ -87,14 +84,11 @@ java Main
 - **Input validation**: added validation for student ID, phone number, status values, and deadline date format.
 - **Sequence initialization**: implemented automatic initialization for job IDs and application IDs based on existing stored records.
 
-powershell
-# Navigate to the project root directory
+### Run  (PowerShell)
 cd path\to\java2
 
-# Compile all Java source files
 javac -d out src\model\*.java src\dao\*.java src\*.java
 
-# Run the main program
 java -cp out Main
 
 ## Issue #5 - [JianCheng  Dong]
