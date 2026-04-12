@@ -1,3 +1,13 @@
+| GitHub Username | Student Name | QMID |
+| --- | --- | --- |
+|Tod8799  | Xuanchen Liu | 231223450 |
+|Monicatwentytwo  | Jing Luo | 231223438 |
+|liujy921  | Jiayi Liu | 231223276 |
+|TXP  | Xiaopeng Tan | 231223379| 
+|Nyog39  | Yankai Wang | 231223737| 
+|Duck0114  | JianCheng Dong | 231223357 |
+
+
 # BUPT TA Recruitment and Management System
 
 ## Issue #1 - Wangyankai
@@ -8,7 +18,7 @@
 - **Auto-initialization**: when the backing CSV file does not exist, the DAO creates it and seeds **three default accounts** (Admin / MO / TA) so the system has usable credentials from a clean state.
 - **Authentication helper**: provided `authenticate(email, password)` which looks up all stored users and returns the matching `User` when credentials are valid; otherwise it returns `null`.
 
-### Run example (PowerShell)
+### Run  (PowerShell)
 
 ```powershell
 @(
@@ -38,7 +48,7 @@ T001,ta@bupt.edu,ta123,TA
 - Data model definition: created `Profile` class with fields `taId`, `name`, `studentId`, `major`, and `phone`.
 - Demo verification: provided `ProfileDAODemo` to demonstrate read, write, query, and update functionality without permanently altering existing data.
 
-powershell
+### Run  (PowerShell)
 javac -d out src/model/Profile.java src/dao/ProfileDAO.java src/demo/ProfileDAODemo.java && java -cp out demo.ProfileDAODemo
 
 ## Issue #3 - Tan Xiaopeng
@@ -61,6 +71,7 @@ javac -d . src\Main.java
 
 # Run the compiled class
 java Main
+
 ## Issue #4 - [Jing Luo]
 
 ### What I implemented
@@ -88,7 +99,7 @@ java -cp out Main
 
 ## Issue #5 - [JianCheng  Dong]
 
-
+### Run  (PowerShell)
 javac -d bin src/**/*.java
 java -cp bin Main
 
@@ -130,7 +141,7 @@ This commit adds the complete frontend layer for the TA Recruitment System.
 - `styles.css`: visual styles for layout, cards, side navigation, status badges, and responsive behavior.
 - `app.js`: client-side interaction logic and API calls.
 
-## Example Command-Line Output
+### Run  (PowerShell)
 After starting the backend server:
 
 ```bash
