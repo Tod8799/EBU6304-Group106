@@ -6,10 +6,11 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -18,10 +19,17 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
+import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 public class WebServer {
     private static final int PORT = 8080;
@@ -136,7 +144,9 @@ public class WebServer {
                         + "\"name\":\"" + esc(p.getName()) + "\","
                         + "\"studentId\":\"" + esc(p.getStudentId()) + "\","
                         + "\"major\":\"" + esc(p.getMajor()) + "\","
-                        + "\"phone\":\"" + esc(p.getPhone()) + "\"}}";
+                        + "\"phone\":\"" + esc(p.getPhone()) + "\","
+                        + "\"resumeText\":\"" + esc(p.getResumeText()) + "\","
+                        + "\"resumeUploaded\":" + (!p.getResumeText().isBlank()) + "}}";
                 sendJson(exchange, 200, json);
                 return;
             }
@@ -152,6 +162,9 @@ public class WebServer {
             String studentId = data.getOrDefault("studentId", "").trim();
             String major = data.getOrDefault("major", "").trim();
             String phone = data.getOrDefault("phone", "").trim();
+            String resumeText = data.getOrDefault("resumeText", "");
+            String resumeFileName = data.getOrDefault("resumeFileName", "").trim();
+            String resumeFileBase64 = data.getOrDefault("resumeFileBase64", "").trim();
 
             if (!studentId.matches("\\d{8}")) {
                 sendJson(exchange, 400, jsonError("Student ID must be exactly 8 digits"));
@@ -161,8 +174,31 @@ public class WebServer {
                 sendJson(exchange, 400, jsonError("Phone must be exactly 11 digits"));
                 return;
             }
+            if (!resumeFileBase64.isBlank()) {
+                byte[] fileBytes;
+                try {
+                    fileBytes = Base64.getDecoder().decode(resumeFileBase64);
+                } catch (IllegalArgumentException e) {
+                    sendJson(exchange, 400, jsonError("Resume file encoding is invalid"));
+                    return;
+                }
+                if (fileBytes.length > 512 * 1024) {
+                    sendJson(exchange, 400, jsonError("Resume file is too large (max 512KB)"));
+                    return;
+                }
+                try {
+                    resumeText = extractResumeText(resumeFileName, fileBytes);
+                } catch (IllegalArgumentException e) {
+                    sendJson(exchange, 400, jsonError(e.getMessage()));
+                    return;
+                }
+            }
+            if (resumeText.length() > 20000) {
+                sendJson(exchange, 400, jsonError("Resume text is too long (max 20000 chars)"));
+                return;
+            }
 
-            profileDAO.saveOrUpdate(new Profile(taId, name, studentId, major, phone));
+            profileDAO.saveOrUpdate(new Profile(taId, name, studentId, major, phone, resumeText));
             writeLog(taId, "TA", "TA_PROFILE_SAVE", "TA profile saved.");
             sendJson(exchange, 200, "{\"ok\":true}");
         }
@@ -358,6 +394,10 @@ public class WebServer {
             }
 
             List<ApplicationRecord> records = applicationDAO.getByJobId(jobId);
+            records.sort(
+                    Comparator.comparingInt((ApplicationRecord r) -> countActiveTasksForTa(r.getTaId()))
+                            .thenComparing(ApplicationRecord::getAppliedAt)
+            );
             StringBuilder sb = new StringBuilder();
             sb.append("{\"ok\":true,\"applicants\":[");
             for (int i = 0; i < records.size(); i++) {
@@ -365,6 +405,7 @@ public class WebServer {
                 Profile p = profileDAO.getByTaId(r.getTaId());
                 User u = userDAO.getById(r.getTaId());
                 String name = p == null ? "N/A" : p.getName();
+                int activeTaskCount = countActiveTasksForTa(r.getTaId());
                 if (i > 0) {
                     sb.append(',');
                 }
@@ -375,6 +416,8 @@ public class WebServer {
                         .append("\"studentId\":\"").append(esc(p == null ? "" : p.getStudentId())).append("\",")
                         .append("\"major\":\"").append(esc(p == null ? "" : p.getMajor())).append("\",")
                         .append("\"phone\":\"").append(esc(p == null ? "" : p.getPhone())).append("\",")
+                        .append("\"resumeText\":\"").append(esc(p == null ? "" : p.getResumeText())).append("\",")
+                        .append("\"activeTaskCount\":").append(activeTaskCount).append(",")
                         .append("\"status\":\"").append(esc(r.getStatus())).append("\"}");
             }
             sb.append("]}");
@@ -537,6 +580,186 @@ public class WebServer {
                 || "Rejected".equalsIgnoreCase(status)
                 || "Interview".equalsIgnoreCase(status)
                 || "Hired".equalsIgnoreCase(status);
+    }
+
+    private static boolean isActiveTaskStatus(String status) {
+        return "Shortlisted".equalsIgnoreCase(status)
+                || "Interview".equalsIgnoreCase(status)
+                || "Hired".equalsIgnoreCase(status);
+    }
+
+    private static int countActiveTasksForTa(String taId) {
+        int count = 0;
+        for (ApplicationRecord record : applicationDAO.getByTaId(taId)) {
+            if (isActiveTaskStatus(record.getStatus())) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static String extractResumeText(String fileName, byte[] fileBytes) {
+        String extension = "";
+        int dot = fileName.lastIndexOf('.');
+        if (dot >= 0 && dot < fileName.length() - 1) {
+            extension = fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
+        }
+
+        String text;
+        switch (extension) {
+            case "txt":
+                text = new String(fileBytes, StandardCharsets.UTF_8);
+                break;
+            case "docx":
+                text = extractDocxText(fileBytes);
+                break;
+            case "pdf":
+                text = extractPdfText(fileBytes);
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported resume type. Please upload TXT, DOCX, or PDF");
+        }
+
+        String normalized = normalizeWhitespace(text);
+        if (normalized.isBlank()) {
+            if ("pdf".equals(extension)) {
+                throw new IllegalArgumentException("Cannot extract readable text from PDF. Please try an editable PDF, or convert it to DOCX/TXT");
+            }
+            throw new IllegalArgumentException("Cannot extract readable text from the uploaded resume");
+        }
+        return normalized;
+    }
+
+    private static String extractDocxText(byte[] fileBytes) {
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(fileBytes))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (!"word/document.xml".equals(entry.getName())) {
+                    continue;
+                }
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                zis.transferTo(out);
+                String xml = out.toString(StandardCharsets.UTF_8);
+                String withParagraphBreaks = xml.replace("</w:p>", "\n");
+                Matcher matcher = Pattern.compile("<w:t[^>]*>(.*?)</w:t>", Pattern.DOTALL).matcher(withParagraphBreaks);
+                StringBuilder sb = new StringBuilder();
+                while (matcher.find()) {
+                    sb.append(unescapeXml(matcher.group(1))).append(' ');
+                }
+                if (sb.length() > 0) {
+                    return sb.toString();
+                }
+                return withParagraphBreaks.replaceAll("<[^>]+>", " ");
+            }
+        } catch (IOException ignored) {
+        }
+        throw new IllegalArgumentException("Cannot read DOCX file");
+    }
+
+    private static String extractPdfText(byte[] fileBytes) {
+        String source = new String(fileBytes, StandardCharsets.ISO_8859_1);
+        List<String> chunks = new ArrayList<>();
+
+        Matcher direct = Pattern.compile("\\((?:\\\\.|[^\\\\)])*\\)\\s*T[Jj]").matcher(source);
+        while (direct.find()) {
+            String token = direct.group();
+            int start = token.indexOf('(');
+            int end = token.lastIndexOf(')');
+            if (start >= 0 && end > start) {
+                chunks.add(decodePdfString(token.substring(start + 1, end)));
+            }
+        }
+
+        Matcher arrayText = Pattern.compile("\\[(.*?)\\]\\s*TJ", Pattern.DOTALL).matcher(source);
+        while (arrayText.find()) {
+            String block = arrayText.group(1);
+            Matcher pieces = Pattern.compile("\\((?:\\\\.|[^\\\\)])*\\)").matcher(block);
+            while (pieces.find()) {
+                String piece = pieces.group();
+                chunks.add(decodePdfString(piece.substring(1, piece.length() - 1)));
+            }
+        }
+
+        if (chunks.isEmpty()) {
+            Matcher fallback = Pattern.compile("[A-Za-z][A-Za-z0-9 ,.\\-_/()]{15,}").matcher(source);
+            while (fallback.find()) {
+                chunks.add(fallback.group());
+                if (chunks.size() >= 100) {
+                    break;
+                }
+            }
+        }
+
+        if (chunks.isEmpty()) {
+            throw new IllegalArgumentException("Cannot extract readable text from PDF. Please try an editable PDF, or convert it to DOCX/TXT");
+        }
+        return String.join("\n", chunks);
+    }
+
+    private static String decodePdfString(String text) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c != '\\') {
+                out.append(c);
+                continue;
+            }
+            if (i + 1 >= text.length()) {
+                break;
+            }
+            char next = text.charAt(++i);
+            switch (next) {
+                case 'n': out.append('\n'); break;
+                case 'r': out.append('\r'); break;
+                case 't': out.append('\t'); break;
+                case 'b': out.append('\b'); break;
+                case 'f': out.append('\f'); break;
+                case '(': out.append('('); break;
+                case ')': out.append(')'); break;
+                case '\\': out.append('\\'); break;
+                default:
+                    if (next >= '0' && next <= '7') {
+                        StringBuilder oct = new StringBuilder();
+                        oct.append(next);
+                        for (int k = 0; k < 2 && i + 1 < text.length(); k++) {
+                            char d = text.charAt(i + 1);
+                            if (d < '0' || d > '7') {
+                                break;
+                            }
+                            oct.append(d);
+                            i++;
+                        }
+                        try {
+                            out.append((char) Integer.parseInt(oct.toString(), 8));
+                        } catch (NumberFormatException ignored) {
+                        }
+                    } else {
+                        out.append(next);
+                    }
+                    break;
+            }
+        }
+        return out.toString();
+    }
+
+    private static String unescapeXml(String value) {
+        return value
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'");
+    }
+
+    private static String normalizeWhitespace(String value) {
+        if (value == null) {
+            return "";
+        }
+        String text = value.replace('\u0000', ' ');
+        text = text.replaceAll("[\\t\\x0B\\f\\r]+", " ");
+        text = text.replaceAll(" +", " ");
+        text = text.replaceAll("\\n{3,}", "\n\n");
+        return text.trim();
     }
 
     private static void initializeSequenceNumbers() {

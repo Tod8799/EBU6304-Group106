@@ -71,8 +71,9 @@
               <label>Student ID (8 digits)<input name="studentId" required /></label>
               <label>Major<input name="major" required /></label>
               <label>Phone (11 digits)<input name="phone" required /></label>
+              <div id="resumeMeta" class="hint">Resume not uploaded yet</div>
               <button type="submit">Save Profile</button>
-              <button id="uploadResumeBtn" type="button" class="ghost">Upload Resume (Coming Soon)</button>
+              <button id="uploadResumeBtn" type="button" class="ghost">Upload Resume (.txt/.pdf/.docx)</button>
             </form>
           </section>
 
@@ -215,11 +216,7 @@
               <div id="reviewDetailPanel" class="panel review-detail hidden">
                 <h3>Application Details (Resume Preview)</h3>
                 <div id="selectedApplicantMeta" class="review-meta">Select an applicant on the left first</div>
-                <div class="resume-placeholder">
-                  <p><strong>Resume Placeholder</strong></p>
-                  <p>Resume file reading is not implemented in the current version.</p>
-                  <p>This area can display education, projects, skills, and personal statement.</p>
-                </div>
+                <div class="resume-placeholder" id="selectedApplicantResume">No resume uploaded yet.</div>
                 <div class="review-actions">
                   <button id="approveApplicantBtn" type="button">Approve</button>
                   <button id="rejectApplicantBtn" type="button" class="alt">Reject</button>
