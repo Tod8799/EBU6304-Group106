@@ -1,7 +1,5 @@
 package dao;
 
-import model.ApplicationRecord;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -10,7 +8,12 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import model.ApplicationRecord;
 
+/**
+ * DAO for `ApplicationRecord` persisted in `data/applications.csv`.
+ * <p>Supports reading, writing and updating application status.</p>
+ */
 public class ApplicationDAO {
     private static final String FILE_PATH = "data/applications.csv";
     private static final List<String> STATUSES = List.of("Pending", "Shortlisted", "Rejected", "Interview", "Hired");
@@ -31,6 +34,9 @@ public class ApplicationDAO {
         }
     }
 
+    /**
+     * Append an application record to storage.
+     */
     public void saveApplication(ApplicationRecord record) {
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FILE_PATH, true))) {
             bw.write(record.toCsvLine());
@@ -40,6 +46,11 @@ public class ApplicationDAO {
         }
     }
 
+    /**
+        * Read all application records from the CSV storage.
+        * <p>This method supports both legacy and current CSV formats and will
+        * normalize fields into {@link model.ApplicationRecord} instances.</p>
+     */
     public List<ApplicationRecord> getAllApplications() {
         List<ApplicationRecord> records = new ArrayList<>();
         try (BufferedReader br = new BufferedReader(new FileReader(FILE_PATH))) {
@@ -66,6 +77,12 @@ public class ApplicationDAO {
         return records;
     }
 
+    /**
+     * Find applications by TA id.
+     *
+     * @param taId the TA id to filter by
+     * @return list of matching application records (may be empty)
+     */
     public List<ApplicationRecord> getByTaId(String taId) {
         List<ApplicationRecord> result = new ArrayList<>();
         for (ApplicationRecord record : getAllApplications()) {
@@ -76,6 +93,12 @@ public class ApplicationDAO {
         return result;
     }
 
+    /**
+     * Find applications by job id.
+     *
+     * @param jobId the job id to filter by
+     * @return list of matching application records (may be empty)
+     */
     public List<ApplicationRecord> getByJobId(String jobId) {
         List<ApplicationRecord> result = new ArrayList<>();
         for (ApplicationRecord record : getAllApplications()) {
@@ -86,6 +109,12 @@ public class ApplicationDAO {
         return result;
     }
 
+    /**
+     * Find a single application by its application id.
+     *
+     * @param appId application id
+     * @return ApplicationRecord or null when not found
+     */
     public ApplicationRecord getByAppId(String appId) {
         for (ApplicationRecord record : getAllApplications()) {
             if (record.getAppId().equalsIgnoreCase(appId)) {
@@ -95,6 +124,13 @@ public class ApplicationDAO {
         return null;
     }
 
+    /**
+     * Check whether a TA already applied for a specific job.
+     *
+     * @param taId  TA id
+     * @param jobId job id
+     * @return true if an application exists, false otherwise
+     */
     public boolean existsForTaAndJob(String taId, String jobId) {
         for (ApplicationRecord record : getAllApplications()) {
             if (record.getTaId().equalsIgnoreCase(taId) && record.getJobId().equalsIgnoreCase(jobId)) {
@@ -104,10 +140,25 @@ public class ApplicationDAO {
         return false;
     }
 
+    /**
+     * Update application status; returns whether an update occurred.
+     *
+     * @param appId     application id to update
+     * @param newStatus new status value
+     * @return true if the record was found and updated, false otherwise
+     */
     public boolean updateStatus(String appId, String newStatus) {
         return updateStatus(appId, newStatus, "");
     }
 
+    /**
+     * Update application status with optional reject reason.
+     *
+     * @param appId        application id
+     * @param newStatus    new status value
+     * @param rejectReason reason for rejection (used when status is Rejected)
+     * @return true if update succeeded, false otherwise
+     */
     public boolean updateStatus(String appId, String newStatus, String rejectReason) {
         List<ApplicationRecord> records = getAllApplications();
         boolean updated = false;
@@ -130,6 +181,11 @@ public class ApplicationDAO {
         return updated;
     }
 
+    /**
+     * Overwrite the CSV storage with the provided list of records.
+     *
+     * @param records list of application records to persist
+     */
     private void rewriteAll(List<ApplicationRecord> records) {
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FILE_PATH, false))) {
             for (ApplicationRecord record : records) {
@@ -141,6 +197,9 @@ public class ApplicationDAO {
         }
     }
 
+    /**
+     * Check whether the provided value is a known application status.
+     */
     private boolean isKnownStatus(String value) {
         for (String status : STATUSES) {
             if (status.equalsIgnoreCase(value)) {

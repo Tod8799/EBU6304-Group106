@@ -1,12 +1,8 @@
-import model.*;
-import dao.*;
-
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
-
-import java.io.File;
+import dao.*;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -18,11 +14,15 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import model.*;
 
+/**
+ * Embedded HTTP server providing a simple web UI and JSON API for the TA recruitment system.
+ * <p>Uses JDK HttpServer and CSV-backed DAOs for persistence. Intended for demos and local testing.</p>
+ */
 public class WebServer {
     private static final int PORT = 8080;
     private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -36,9 +36,13 @@ public class WebServer {
     private static int jobSequence = 1;
     private static int appSequence = 1;
 
-    // 服务容器与路由
-    // 使用 JDK 内置 HttpServer 启动服务并集中注册接口，实现单进程运行。
-    // 实现位置：创建服务 WebServer.java:42，注册路由 WebServer.java:44。
+    // Server container and routes are registered below using the built-in JDK HttpServer.
+    /**
+     * Start the embedded HTTP server on port 8080.
+     *
+     * @param args not used
+     * @throws IOException when server cannot start
+     */
     public static void main(String[] args) throws IOException {
         initializeSequenceNumbers();
 
@@ -65,6 +69,9 @@ public class WebServer {
     // Handler 分治
     // 每个业务域独立 Handler，登录、TA、MO、Admin 各自封装，避免“大控制器”。
     // 示例：登录 WebServer.java:91，TA投递 WebServer.java:188，MO审核 WebServer.java:376，Admin指标 WebServer.java:426。
+    /**
+     * Handler to serve static files from the project (web/ folder).
+     */
     static class StaticHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -94,6 +101,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Handle login requests. Accepts POST form with `email` and `password`.
+     */
     static class LoginHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -117,10 +127,10 @@ public class WebServer {
         }
     }
 
+    /**
+     * API for TA profile operations. GET checks existence; POST saves profile after validation.
+     */
     static class TaProfileHandler implements HttpHandler {
-        // 业务约束后端兜底
-        // 关键规则全部在服务端判定，防止绕过前端造成脏数据。
-        // 示例：TA建档格式校验 WebServer.java:148，投递前置校验 WebServer.java:201，MO审核状态与权限校验 WebServer.java:390。
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -168,6 +178,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Returns a JSON array of currently open jobs for TAs.
+     */
     static class TaOpenJobsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -194,6 +207,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Endpoint for TAs to apply for a job (POST form with `taId` and `jobId`).
+     */
     static class TaApplyHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -247,6 +263,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Returns the list of applications submitted by a TA (query `taId`).
+     */
     static class TaApplicationsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -278,6 +297,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Endpoint for MOs to post new jobs (POST form with moId/title/requirements/deadline).
+     */
     static class MoPostJobHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -312,6 +334,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Returns jobs posted by a given MO (query `moId`).
+     */
     static class MoJobsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -340,6 +365,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Returns applicants for a job owned by the specified MO (query moId & jobId).
+     */
     static class MoApplicantsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -382,6 +410,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Update applicant status endpoint (POST with moId/appId/status[/rejectReason]).
+     */
     static class MoStatusHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -432,6 +463,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Admin-facing metrics endpoint returning JSON statistics about jobs and applications.
+     */
     static class AdminMetricsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -486,6 +520,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Returns audit logs as JSON for admin users.
+     */
     static class AdminLogsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -512,9 +549,11 @@ public class WebServer {
         }
     }
 
-    // 序列号与重置机制
-    // 启动时重建 JOB/APP 序列避免 ID 冲突，提供 reset 接口便于演示快速复位。
-    // 实现位置：序列初始化 WebServer.java:530，重置接口 WebServer.java:506。
+    // Sequence initialization and reset endpoint
+    // On startup the service rebuilds job/app sequences to avoid ID collisions. A reset API is available for demos.
+    /**
+     * Reset handler used for demo/testing: clears CSV storage and reinitializes sequences.
+     */
     static class ResetHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -531,6 +570,12 @@ public class WebServer {
         }
     }
 
+    /**
+     * Validate if the provided status string is supported by the system.
+     *
+     * @param status candidate status
+     * @return true when status is valid
+     */
     private static boolean isValidStatus(String status) {
         return "Pending".equalsIgnoreCase(status)
                 || "Shortlisted".equalsIgnoreCase(status)
@@ -562,9 +607,14 @@ public class WebServer {
         appSequence = maxApp + 1;
     }
 
-    // 持久化与可追踪
-    // 接口最终调用 DAO 写入 CSV，并同步写审计日志，形成可回放轨迹。
-    // 日志写入方法 WebServer.java:553，调用点如登录 WebServer.java:109、发岗 WebServer.java:301、审核 WebServer.java:421。
+    /**
+     * Append an audit log entry to the log store.
+     *
+     * @param userId id of the user performing the action
+     * @param role   role of the user
+     * @param action short action code
+     * @param detail descriptive detail text
+     */
     private static void writeLog(String userId, String role, String action, String detail) {
         auditLogDAO.append(new AuditLog(
                 LocalDateTime.now().format(TS_FORMAT),
@@ -575,9 +625,13 @@ public class WebServer {
         ));
     }
 
-    // 请求解析统一
-    // 前端使用表单编码提交，后端统一通过 parseFormBody 和 parseQuery 解析，避免多套协议。
-    // 实现位置：WebServer.java:563 和 WebServer.java:572。
+    /**
+     * Parse the request body (application/x-www-form-urlencoded) into a map.
+     *
+     * @param exchange http exchange
+     * @return map of parsed form parameters
+     * @throws IOException on read errors
+     */
     private static Map<String, String> parseFormBody(HttpExchange exchange) throws IOException {
         byte[] bytes;
         try (InputStream is = exchange.getRequestBody()) {
@@ -587,6 +641,12 @@ public class WebServer {
         return parseQuery(body);
     }
 
+    /**
+     * Parse a URL-encoded query string into a map.
+     *
+     * @param query raw query string
+     * @return map of key/value pairs
+     */
     private static Map<String, String> parseQuery(String query) {
         Map<String, String> map = new HashMap<>();
         if (query == null || query.isEmpty()) {
@@ -603,13 +663,24 @@ public class WebServer {
         return map;
     }
 
+    /**
+     * URL-decode a string using UTF-8.
+     *
+     * @param s encoded string
+     * @return decoded string
+     */
     private static String urlDecode(String s) {
         return URLDecoder.decode(s, StandardCharsets.UTF_8);
     }
 
-    // 响应与错误统一
-    // 所有接口统一 JSON 返回，成功带 ok:true，失败统一 jsonError，前端可直接按 error 展示。
-    // 实现位置：WebServer.java:592 和 WebServer.java:613。
+    /**
+     * Send a JSON response with the specified HTTP status.
+     *
+     * @param exchange http exchange
+     * @param status   http status code
+     * @param json     json payload
+     * @throws IOException on I/O errors
+     */
     private static void sendJson(HttpExchange exchange, int status, String json) throws IOException {
         byte[] data = json.getBytes(StandardCharsets.UTF_8);
         Headers headers = exchange.getResponseHeaders();
@@ -621,6 +692,14 @@ public class WebServer {
         }
     }
 
+    /**
+     * Send a plain text response with specified status.
+     *
+     * @param exchange http exchange
+     * @param status   http status code
+     * @param text     text payload
+     * @throws IOException on I/O errors
+     */
     private static void sendText(HttpExchange exchange, int status, String text) throws IOException {
         byte[] data = text.getBytes(StandardCharsets.UTF_8);
         Headers headers = exchange.getResponseHeaders();
@@ -631,10 +710,22 @@ public class WebServer {
         }
     }
 
+    /**
+     * Build a simple JSON error payload: {"ok":false,"error":"..."}.
+     *
+     * @param message error message
+     * @return json string
+     */
     private static String jsonError(String message) {
         return "{\"ok\":false,\"error\":\"" + esc(message) + "\"}";
     }
 
+    /**
+     * Escape a string for safe inclusion in JSON values (basic escaping).
+     *
+     * @param s input string
+     * @return escaped string
+     */
     private static String esc(String s) {
         if (s == null) {
             return "";
@@ -642,6 +733,12 @@ public class WebServer {
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ");
     }
 
+    /**
+     * Guess a simple content type based on file extension.
+     *
+     * @param path file path
+     * @return content type header value
+     */
     private static String getContentType(String path) {
         if (path.endsWith(".html")) {
             return "text/html; charset=utf-8";
@@ -658,6 +755,11 @@ public class WebServer {
         return "application/octet-stream";
     }
 
+    /**
+     * Truncate the specified file to empty contents (used by reset endpoint).
+     *
+     * @param fileName relative file path
+     */
     private static void clearFile(String fileName) {
         try {
             Files.writeString(Path.of(fileName), "", StandardCharsets.UTF_8);

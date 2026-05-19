@@ -1,14 +1,18 @@
-import model.*;
 import dao.*;
-
-import java.util.Scanner;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
+import model.*;
 
+/**
+ * Console entry point for the TA Recruitment System.
+ * <p>Provides a simple interactive console UI to demonstrate user authentication,
+ * job posting, applications and review workflows.</p>
+ */
 public class Main {
     private static Scanner scanner = new Scanner(System.in);
     private static UserDAO userDAO = new UserDAO();
@@ -21,6 +25,11 @@ public class Main {
 
     private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    /**
+     * Application entry point. Starts the interactive console loop.
+     *
+     * @param args command line arguments (unused)
+     */
     public static void main(String[] args) {
         System.out.println("=========================================");
         System.out.println("  TA Recruitment System - Version 2.0    ");
@@ -54,6 +63,11 @@ public class Main {
         }
     }
 
+    /**
+     * Show the dashboard corresponding to the user's role and handle logout.
+     *
+     * @param user the currently authenticated user
+     */
     private static void showDashboard(User user) {
         System.out.println("\n-----------------------------------------");
         switch (user.getRole()) {
@@ -74,6 +88,11 @@ public class Main {
         System.out.println("Logged out. Returning to login screen.");
     }
 
+    /**
+     * Interactive menu for TA role operations (profile, browsing and applying).
+     *
+     * @param user the TA user
+     */
     private static void taMenu(User user) {
         while (true) {
             System.out.println("\n>> TA DASHBOARD");
@@ -104,6 +123,11 @@ public class Main {
         }
     }
 
+    /**
+     * Interactive menu for MO role operations (post jobs, view applicants).
+     *
+     * @param user the MO user
+     */
     private static void moMenu(User user) {
         while (true) {
             System.out.println("\n>> MO DASHBOARD");
@@ -131,6 +155,11 @@ public class Main {
         }
     }
 
+    /**
+     * Interactive menu for Admin role operations (metrics and logs read-only).
+     *
+     * @param user the admin user
+     */
     private static void adminMenu(User user) {
         while (true) {
             System.out.println("\n>> ADMIN DASHBOARD");
@@ -152,6 +181,11 @@ public class Main {
         }
     }
 
+    /**
+     * Create or update the TA profile for the given user with input validation.
+     *
+     * @param user the TA user creating/updating the profile
+     */
     private static void createOrUpdateProfile(User user) {
         System.out.println("\n--- Create or Update TA Profile ---");
         System.out.print("Name: ");
@@ -180,6 +214,11 @@ public class Main {
         System.out.println("[Success] Profile saved.");
     }
 
+    /**
+     * Display the TA profile for the given user.
+     *
+     * @param user the TA user whose profile is requested
+     */
     private static void showProfile(User user) {
         Profile profile = profileDAO.getByTaId(user.getId());
         if (profile == null) {
@@ -195,6 +234,9 @@ public class Main {
         System.out.println("Phone: " + profile.getPhone());
     }
 
+    /**
+     * Print a list of currently open jobs (not expired).
+     */
     private static void browseOpenJobs() {
         List<Job> jobs = jobDAO.getOpenJobs();
         System.out.println("\n--- Open Jobs (Not Expired) ---");
@@ -210,6 +252,11 @@ public class Main {
         }
     }
 
+    /**
+     * Apply the current TA user for a chosen job after validating profile and deadline.
+     *
+     * @param user the TA user applying for a job
+     */
     private static void applyForJob(User user) {
         Profile profile = profileDAO.getByTaId(user.getId());
         if (profile == null) {
@@ -258,6 +305,11 @@ public class Main {
         System.out.println("[Success] Application submitted. App ID: " + appId);
     }
 
+    /**
+     * Show all applications submitted by the given TA user.
+     *
+     * @param user the TA user whose applications will be displayed
+     */
     private static void viewMyApplications(User user) {
         List<ApplicationRecord> records = applicationDAO.getByTaId(user.getId());
         System.out.println("\n--- My Applications ---");
@@ -274,6 +326,11 @@ public class Main {
         }
     }
 
+    /**
+     * Post a new job on behalf of the MO user with validation on the deadline.
+     *
+     * @param user the MO user posting the job
+     */
     private static void postJob(User user) {
         System.out.println("\n--- Post New Job ---");
         System.out.print("Title: ");
@@ -303,6 +360,11 @@ public class Main {
         System.out.println("[Success] Job posted. Job ID: " + jobId);
     }
 
+    /**
+     * Display jobs posted by the given MO user.
+     *
+     * @param user the MO user
+     */
     private static void viewMyJobs(User user) {
         List<Job> jobs = jobDAO.getJobsByMoId(user.getId());
         System.out.println("\n--- My Posted Jobs ---");
@@ -317,6 +379,11 @@ public class Main {
         }
     }
 
+    /**
+     * View applicants for a specific job owned by the MO user.
+     *
+     * @param user the MO user requesting applicants
+     */
     private static void viewApplicantsByJob(User user) {
         viewMyJobs(user);
         System.out.print("Enter Job ID to view applicants: ");
@@ -345,6 +412,12 @@ public class Main {
         }
     }
 
+    /**
+     * Update the status of an application (Pending/Shortlisted/Rejected/Interview/Hired).
+     * Ensures permission checks and writes audit logs on success.
+     *
+     * @param user the MO user performing the update
+     */
     private static void updateApplicantStatus(User user) {
         System.out.print("Enter App ID to update status: ");
         String appId = scanner.nextLine().trim();
@@ -376,6 +449,12 @@ public class Main {
         }
     }
 
+    /**
+     * Validate if the provided status is one of the supported statuses.
+     *
+     * @param status status string to validate
+     * @return true if valid, false otherwise
+     */
     private static boolean isValidStatus(String status) {
         return "Pending".equalsIgnoreCase(status)
                 || "Shortlisted".equalsIgnoreCase(status)
@@ -384,6 +463,9 @@ public class Main {
                 || "Hired".equalsIgnoreCase(status);
     }
 
+    /**
+     * Compute and display basic recruitment metrics and status distribution.
+     */
     private static void showMetrics() {
         List<Job> jobs = jobDAO.getAllJobs();
         List<ApplicationRecord> records = applicationDAO.getAllApplications();
@@ -426,6 +508,9 @@ public class Main {
         }
     }
 
+    /**
+     * Print audit logs in read-only mode for admin users.
+     */
     private static void showLogsReadOnly() {
         List<AuditLog> logs = auditLogDAO.getAllLogs();
         System.out.println("\n--- Operation Logs (Read Only) ---");
@@ -443,6 +528,13 @@ public class Main {
         }
     }
 
+    /**
+     * Helper to append an audit log entry for a user action.
+     *
+     * @param user   the user performing the action
+     * @param action short action code
+     * @param detail descriptive detail text
+     */
     private static void writeLog(User user, String action, String detail) {
         auditLogDAO.append(new AuditLog(
                 LocalDateTime.now().format(TS_FORMAT),
@@ -453,6 +545,9 @@ public class Main {
         ));
     }
 
+    /**
+     * Initialize job and application sequence counters from persisted records to avoid ID collisions.
+     */
     private static void initializeSequenceNumbers() {
         int maxJob = 0;
         int maxApp = 0;

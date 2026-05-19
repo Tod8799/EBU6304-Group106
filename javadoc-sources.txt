@@ -1,0 +1,12 @@
+D:\解压代码文件\EBU6304-Group106-main\BUPT TA Recruitment and Management System---version 1\src\Main.java
+D:\解压代码文件\EBU6304-Group106-main\BUPT TA Recruitment and Management System---version 1\src\WebServer.java
+D:\解压代码文件\EBU6304-Group106-main\BUPT TA Recruitment and Management System---version 1\src\dao\ApplicationDAO.java
+D:\解压代码文件\EBU6304-Group106-main\BUPT TA Recruitment and Management System---version 1\src\dao\AuditLogDAO.java
+D:\解压代码文件\EBU6304-Group106-main\BUPT TA Recruitment and Management System---version 1\src\dao\JobDAO.java
+D:\解压代码文件\EBU6304-Group106-main\BUPT TA Recruitment and Management System---version 1\src\dao\ProfileDAO.java
+D:\解压代码文件\EBU6304-Group106-main\BUPT TA Recruitment and Management System---version 1\src\dao\UserDAO.java
+D:\解压代码文件\EBU6304-Group106-main\BUPT TA Recruitment and Management System---version 1\src\model\ApplicationRecord.java
+D:\解压代码文件\EBU6304-Group106-main\BUPT TA Recruitment and Management System---version 1\src\model\AuditLog.java
+D:\解压代码文件\EBU6304-Group106-main\BUPT TA Recruitment and Management System---version 1\src\model\Job.java
+D:\解压代码文件\EBU6304-Group106-main\BUPT TA Recruitment and Management System---version 1\src\model\Profile.java
+D:\解压代码文件\EBU6304-Group106-main\BUPT TA Recruitment and Management System---version 1\src\model\User.java

@@ -1,11 +1,14 @@
 package dao;
 
-import model.User;
-
 import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
+import model.User;
 
+/**
+ * Data access object for `User` persisted in `data/users.csv`.
+ * <p>Provides simple CSV-backed operations for demo purposes.</p>
+ */
 public class UserDAO {
     private static final String FILE_PATH = "data/users.csv";
 
@@ -25,6 +28,11 @@ public class UserDAO {
         }
     }
 
+    /**
+     * Append a user record to the CSV file.
+     *
+     * @param user the user to save
+     */
     public void saveUser(User user) {
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FILE_PATH, true))) {
             bw.write(user.toString());
@@ -34,6 +42,11 @@ public class UserDAO {
         }
     }
 
+    /**
+     * Read all users from the CSV file.
+     *
+     * @return list of users (may be empty)
+     */
     public List<User> getAllUsers() {
         List<User> users = new ArrayList<>();
         try (BufferedReader br = new BufferedReader(new FileReader(FILE_PATH))) {
@@ -51,6 +64,13 @@ public class UserDAO {
         return users;
     }
 
+    /**
+        * Authenticate a user by email and password.
+        *
+        * @param email    user email
+        * @param password user password
+        * @return matching User or null when not found
+     */
     public User authenticate(String email, String password) {
         for (User user : getAllUsers()) {
             if (user.getEmail().equalsIgnoreCase(email) && user.getPassword().equals(password)) {
@@ -60,6 +80,12 @@ public class UserDAO {
         return null;
     }
 
+    /**
+        * Find a user by id.
+        *
+        * @param id user id
+        * @return User or null when not found
+     */
     public User getById(String id) {
         for (User user : getAllUsers()) {
             if (user.getId().equalsIgnoreCase(id)) {

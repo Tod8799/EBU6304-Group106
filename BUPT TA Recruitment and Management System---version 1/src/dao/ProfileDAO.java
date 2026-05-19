@@ -11,6 +11,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * CSV-backed DAO for `Profile` stored in `data/profiles.csv`.
+ */
 public class ProfileDAO {
     private static final String FILE_PATH = "data/profiles.csv";
 
@@ -30,6 +33,11 @@ public class ProfileDAO {
         }
     }
 
+    /**
+     * Return all profiles.
+     *
+     * @return list of profiles
+     */
     public List<Profile> getAllProfiles() {
         List<Profile> profiles = new ArrayList<>();
         try (BufferedReader br = new BufferedReader(new FileReader(FILE_PATH))) {
@@ -47,6 +55,12 @@ public class ProfileDAO {
         return profiles;
     }
 
+    /**
+     * Find a profile by TA id.
+     *
+     * @param taId ta id
+     * @return Profile or null
+     */
     public Profile getByTaId(String taId) {
         for (Profile profile : getAllProfiles()) {
             if (profile.getTaId().equalsIgnoreCase(taId)) {
@@ -56,6 +70,11 @@ public class ProfileDAO {
         return null;
     }
 
+    /**
+     * Save a new profile or update an existing one.
+     *
+     * @param profile profile to save or update
+     */
     public void saveOrUpdate(Profile profile) {
         List<Profile> all = getAllProfiles();
         boolean updated = false;
