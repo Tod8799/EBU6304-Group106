@@ -39,6 +39,9 @@ public class ProfileDAO {
                 String[] data = line.split(",", -1);
                 if (data.length == 5) {
                     profiles.add(new Profile(data[0], data[1], data[2], data[3], data[4]));
+                } else if (data.length >= 6) {
+                    String resumeEncoded = String.join(",", java.util.Arrays.copyOfRange(data, 5, data.length));
+                    profiles.add(new Profile(data[0], data[1], data[2], data[3], data[4], Profile.decodeBase64(resumeEncoded)));
                 }
             }
         } catch (IOException e) {

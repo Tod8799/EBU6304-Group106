@@ -34,6 +34,9 @@ let moJobsCache = [];
 let selectedApplicant = null;
 let taOpenJobsCache = [];
 let selectedTaJob = null;
+let taResumeText = "";
+let taResumeFileName = "";
+let taResumeFileBase64 = "";
 
 function switchTaTab(tabName) {
   Object.values(taSections).forEach((section) => section.classList.add("hidden"));
@@ -55,6 +58,10 @@ async function loadAndPopulateProfile() {
     const p = await api(`/api/ta/profile?taId=${encodeURIComponent(state.id)}`);
     if (!p.exists) {
       notice.classList.remove("hidden");
+      taResumeText = "";
+      taResumeFileName = "";
+      taResumeFileBase64 = "";
+      refreshResumeUploadBtn();
     } else {
       notice.classList.add("hidden");
       const form = document.getElementById("profileForm");
@@ -62,9 +69,17 @@ async function loadAndPopulateProfile() {
       form.elements["studentId"].value = p.profile.studentId || "";
       form.elements["major"].value = p.profile.major || "";
       form.elements["phone"].value = p.profile.phone || "";
+      taResumeText = p.profile.resumeText || "";
+      taResumeFileName = p.profile.resumeUploaded ? "resume_saved" : "";
+      taResumeFileBase64 = "";
+      refreshResumeUploadBtn();
     }
   } catch (_) {
     notice.classList.remove("hidden");
+    taResumeText = "";
+    taResumeFileName = "";
+    taResumeFileBase64 = "";
+    refreshResumeUploadBtn();
   }
 }
 
@@ -160,6 +175,41 @@ function escHtml(str) {
     .replace(/'/g, "&#39;");
 }
 
+function refreshResumeUploadBtn() {
+  const btn = document.getElementById("uploadResumeBtn");
+  const meta = document.getElementById("resumeMeta");
+  if (!btn) return;
+  if (taResumeText) {
+    btn.textContent = `Replace Resume (.txt/.pdf/.docx, ${taResumeText.length} chars)`;
+    if (meta) {
+      const fileLabel = taResumeFileName || "saved_resume";
+      meta.textContent = `Resume: ${fileLabel} | Parsed length: ${taResumeText.length} chars`;
+    }
+  } else {
+    btn.textContent = "Upload Resume (.txt/.pdf/.docx)";
+    if (meta) {
+      meta.textContent = "Resume not uploaded yet";
+    }
+  }
+}
+
+function getFileExtension(fileName) {
+  const idx = fileName.lastIndexOf(".");
+  if (idx < 0 || idx === fileName.length - 1) return "";
+  return fileName.substring(idx + 1).toLowerCase();
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const slice = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...slice);
+  }
+  return btoa(binary);
+}
+
 function switchMoTab(tabName) {
   Object.values(moSections).forEach((section) => section.classList.add("hidden"));
   if (moSections[tabName]) {
@@ -185,6 +235,7 @@ function renderMoApplicantList() {
             <button class="applicant-item" type="button" data-app-id="${escHtml(a.appId)}">
               <span class="applicant-item-name">${escHtml(a.name || "(Profile not completed)")}</span>
               <span class="applicant-item-meta">${escHtml(a.taId)}</span>
+              <span class="applicant-item-meta">Active tasks: ${escHtml(a.activeTaskCount || 0)}</span>
               <span class="status-badge status-${escHtml(a.status.toLowerCase())}">${escHtml(a.status)}</span>
             </button>
           `;
@@ -276,9 +327,11 @@ async function refreshCurrentJobApplicants() {
 function renderSelectedApplicant() {
   const detailPanel = document.getElementById("reviewDetailPanel");
   const metaEl = document.getElementById("selectedApplicantMeta");
+  const resumeEl = document.getElementById("selectedApplicantResume");
   if (!selectedApplicant) {
     detailPanel.classList.add("hidden");
     metaEl.textContent = "Select an applicant on the left first";
+    resumeEl.textContent = "No resume uploaded yet.";
     return;
   }
 
@@ -288,7 +341,9 @@ function renderSelectedApplicant() {
     <div><strong>Applicant:</strong> ${escHtml(selectedApplicant.name || "(Profile not completed)")} (${escHtml(selectedApplicant.taId)})</div>
     <div><strong>Student ID:</strong> ${escHtml(selectedApplicant.studentId || "-")} &nbsp; <strong>Major:</strong> ${escHtml(selectedApplicant.major || "-")}</div>
     <div><strong>Phone:</strong> ${escHtml(selectedApplicant.phone || "-")} &nbsp; <strong>Status:</strong> ${escHtml(selectedApplicant.status)}</div>
+    <div><strong>Current active tasks:</strong> ${escHtml(selectedApplicant.activeTaskCount || 0)}</div>
   `;
+  resumeEl.textContent = selectedApplicant.resumeText || "No resume uploaded yet.";
 }
 
 async function updateSelectedApplicantStatus(newStatus, rejectReason = "") {
@@ -470,11 +525,58 @@ document.getElementById("profileForm").addEventListener("submit", async (e) => {
       studentId: fd.get("studentId"),
       major: fd.get("major"),
       phone: fd.get("phone"),
+      resumeText: taResumeText,
+      resumeFileName: taResumeFileName,
+      resumeFileBase64: taResumeFileBase64,
     });
+    taResumeFileBase64 = "";
+    await loadAndPopulateProfile();
     showMessage("Profile saved", true);
   } catch (err) {
     showMessage(err.message);
   }
+});
+
+document.getElementById("uploadResumeBtn").addEventListener("click", () => {
+  const picker = document.createElement("input");
+  picker.type = "file";
+  picker.accept = ".txt,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  picker.addEventListener("change", async () => {
+    const file = picker.files && picker.files[0];
+    if (!file) return;
+    const ext = getFileExtension(file.name);
+    if (!["txt", "pdf", "docx"].includes(ext)) {
+      showMessage("Unsupported file type. Please upload .txt, .pdf, or .docx");
+      return;
+    }
+    if (file.size > 512 * 1024) {
+      showMessage("Resume file is too large (max 512KB)");
+      return;
+    }
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      taResumeFileBase64 = arrayBufferToBase64(arrayBuffer);
+      taResumeFileName = file.name;
+      if (ext === "txt") {
+        taResumeText = new TextDecoder("utf-8").decode(arrayBuffer).trim();
+      } else {
+        taResumeText = `[${file.name}] uploaded, text will be extracted on save`;
+      }
+      refreshResumeUploadBtn();
+      if (!taResumeText) {
+        showMessage("Uploaded file is empty");
+        return;
+      }
+      if (ext === "pdf" || ext === "docx") {
+        showMessage(`Resume loaded: ${taResumeFileName}. Click Save Profile to parse and store`, true);
+      } else {
+        showMessage(`Resume loaded: ${taResumeFileName}`, true);
+      }
+    } catch (_) {
+      showMessage("Failed to read resume file");
+    }
+  });
+  picker.click();
 });
 
 document.getElementById("loadOpenJobsBtn").addEventListener("click", async () => {
@@ -688,3 +790,4 @@ document.querySelectorAll("[data-stat-nav]").forEach((card) => {
 
 // Step 6-7: 启动后进入可演示闭环（登录->发岗->投递->审核->统计日志）。
 switchRoleView();
+refreshResumeUploadBtn();
