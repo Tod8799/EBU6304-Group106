@@ -555,7 +555,7 @@ document.getElementById("profileForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
   try {
-    await api("/api/ta/profile", "POST", {
+    const result = await api("/api/ta/profile", "POST", {
       taId: state.id,
       name: fd.get("name"),
       studentId: fd.get("studentId"),
@@ -567,7 +567,8 @@ document.getElementById("profileForm").addEventListener("submit", async (e) => {
     });
     taResumeFileBase64 = "";
     await loadAndPopulateProfile();
-    showMessage("Profile saved", true);
+    const parsedLen = typeof result.parsedLength === "number" ? result.parsedLength : taResumeText.length;
+    showMessage(`Profile saved (parsed ${parsedLen} chars)`, true);
   } catch (err) {
     showMessage(err.message);
   }
@@ -755,16 +756,20 @@ document.getElementById("rejectApplicantBtn").addEventListener("click", async ()
     showMessage("Please select an applicant first");
     return;
   }
-  const reason = prompt("Enter rejection reason:", "");
-  if (reason === null) {
-    return;
-  }
-  const trimmed = reason.trim();
+  const rejectBtn = document.getElementById("rejectApplicantBtn");
+  const trimmed = document.getElementById("rejectReasonInput").value.trim();
   if (!trimmed) {
     showMessage("Rejection reason cannot be empty");
+    document.getElementById("rejectReasonInput").focus();
     return;
   }
-  await updateSelectedApplicantStatus("Rejected", trimmed);
+  rejectBtn.disabled = true;
+  try {
+    await updateSelectedApplicantStatus("Rejected", trimmed);
+    document.getElementById("rejectReasonInput").value = "";
+  } finally {
+    rejectBtn.disabled = false;
+  }
 });
 
 document.getElementById("backToApplicantsBtn").addEventListener("click", () => {

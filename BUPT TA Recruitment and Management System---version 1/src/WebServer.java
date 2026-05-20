@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.Inflater;
@@ -40,6 +41,9 @@ public class WebServer {
     private static final int MAX_PDF_BYTES = 5 * 1024 * 1024;
     private static final int MAX_PDF_TOKEN_CHUNKS = 200;
     private static final int MAX_FLATE_STREAMS_TO_SCAN = 40;
+    private static final int MAX_PDF_SCAN_CHARS = 2_000_000;
+    private static final int MAX_PDF_STRING_LOOKBACK = 600;
+    private static final int MAX_PDF_ARRAY_LOOKBACK = 8000;
 
     private static final UserDAO userDAO = new UserDAO();
     private static final ProfileDAO profileDAO = new ProfileDAO();
@@ -71,7 +75,7 @@ public class WebServer {
         server.createContext("/api/admin/logs", new AdminLogsHandler());
         server.createContext("/api/reset", new ResetHandler());
 
-        server.setExecutor(null);
+        server.setExecutor(Executors.newFixedThreadPool(8));
         server.start();
         System.out.println("Web UI started: http://localhost:" + PORT);
     }
@@ -205,7 +209,7 @@ public class WebServer {
 
                 profileDAO.saveOrUpdate(new Profile(taId, name, studentId, major, phone, resumeText, resumeFileName));
                 writeLog(taId, "TA", "TA_PROFILE_SAVE", "TA profile saved.");
-                sendJson(exchange, 200, "{\"ok\":true}");
+                sendJson(exchange, 200, "{\"ok\":true,\"parsedLength\":" + resumeText.length() + "}");
             } catch (IllegalArgumentException e) {
                 sendJson(exchange, 400, jsonError(e.getMessage()));
             } catch (Exception e) {
@@ -341,6 +345,11 @@ public class WebServer {
             String title = data.getOrDefault("title", "").trim();
             String requirements = data.getOrDefault("requirements", "").trim();
             String deadline = data.getOrDefault("deadline", "").trim();
+
+            if (moId.isBlank() || title.isBlank() || requirements.isBlank() || deadline.isBlank()) {
+                sendJson(exchange, 400, jsonError("All job fields are required"));
+                return;
+            }
 
             LocalDate date;
             try {
@@ -645,8 +654,9 @@ public class WebServer {
 
         String normalized = normalizeWhitespace(text);
         if (normalized.isBlank()) {
-            // For PDF, keep silent when no readable text is available.
-            if ("pdf".equals(extension)) return "";
+            if ("pdf".equals(extension)) {
+                throw new IllegalArgumentException("Cannot extract readable text from image-only scanned PDF");
+            }
             throw new IllegalArgumentException("Cannot extract readable text from the uploaded resume");
         }
         return normalized;
@@ -689,15 +699,9 @@ public class WebServer {
             collectPdfTextTokens(streamText, chunks);
         }
 
-        // Fallback for form-like PDFs: values can exist as plain parenthesized strings
-        // without explicit text drawing operators (Tj/TJ).
+        // Fallback for form-like PDFs: plain parenthesized strings without Tj/TJ operators.
         if (chunks.isEmpty()) {
-            Matcher allStrings = Pattern.compile("\\((?:\\\\.|[^\\\\)]){1,200}\\)").matcher(source);
-            while (allStrings.find()) {
-                String token = allStrings.group();
-                chunks.add(decodePdfString(token.substring(1, token.length() - 1)));
-                if (chunks.size() >= MAX_PDF_TOKEN_CHUNKS) break;
-            }
+            collectPlainPdfParenStrings(source, chunks);
         }
 
         if (chunks.isEmpty()) return "";
@@ -705,26 +709,111 @@ public class WebServer {
     }
 
     private static void collectPdfTextTokens(String source, List<String> chunks) {
-        Matcher direct = Pattern.compile("\\((?:\\\\.|[^\\\\)])*\\)\\s*T[Jj]").matcher(source);
-        while (direct.find()) {
-            if (chunks.size() >= MAX_PDF_TOKEN_CHUNKS) return;
-            String token = direct.group();
-            int start = token.indexOf('(');
-            int end = token.lastIndexOf(')');
-            if (start >= 0 && end > start) {
-                chunks.add(decodePdfString(token.substring(start + 1, end)));
-            }
-        }
+        if (source == null || source.isEmpty()) return;
+        int scanLen = Math.min(source.length(), MAX_PDF_SCAN_CHARS);
+        String bounded = source.substring(0, scanLen);
+        collectPdfTextBeforeOperator(bounded, "Tj", chunks);
+        collectPdfTextBeforeOperator(bounded, "TJ", chunks);
+        collectPdfArrayText(bounded, chunks);
+    }
 
-        Matcher arrayText = Pattern.compile("\\[(.*?)\\]\\s*TJ", Pattern.DOTALL).matcher(source);
-        while (arrayText.find()) {
-            if (chunks.size() >= MAX_PDF_TOKEN_CHUNKS) return;
-            String block = arrayText.group(1);
-            Matcher pieces = Pattern.compile("\\((?:\\\\.|[^\\\\)])*\\)").matcher(block);
-            while (pieces.find()) {
-                if (chunks.size() >= MAX_PDF_TOKEN_CHUNKS) return;
-                String piece = pieces.group();
-                chunks.add(decodePdfString(piece.substring(1, piece.length() - 1)));
+    private static void collectPdfTextBeforeOperator(String source, String operator, List<String> chunks) {
+        int from = 0;
+        while (chunks.size() < MAX_PDF_TOKEN_CHUNKS) {
+            int opPos = source.indexOf(operator, from);
+            if (opPos < 0) break;
+
+            int closeParen = opPos - 1;
+            while (closeParen >= 0 && Character.isWhitespace(source.charAt(closeParen))) {
+                closeParen--;
+            }
+            if (closeParen < 0 || source.charAt(closeParen) != ')') {
+                from = opPos + operator.length();
+                continue;
+            }
+
+            int openParen = closeParen - 1;
+            int depth = 0;
+            boolean found = false;
+            while (openParen >= 0 && closeParen - openParen <= MAX_PDF_STRING_LOOKBACK) {
+                char c = source.charAt(openParen);
+                if (c == ')') {
+                    depth++;
+                } else if (c == '(') {
+                    if (depth == 0) {
+                        chunks.add(decodePdfString(source.substring(openParen + 1, closeParen)));
+                        found = true;
+                        break;
+                    }
+                    depth--;
+                }
+                openParen--;
+            }
+            if (!found) {
+                from = opPos + operator.length();
+                continue;
+            }
+            from = opPos + operator.length();
+        }
+    }
+
+    private static void collectPdfArrayText(String source, List<String> chunks) {
+        int from = 0;
+        while (chunks.size() < MAX_PDF_TOKEN_CHUNKS) {
+            int tjPos = source.indexOf(" TJ", from);
+            if (tjPos < 0) {
+                tjPos = source.indexOf("\nTJ", from);
+            }
+            if (tjPos < 0) {
+                break;
+            }
+
+            int bracket = source.lastIndexOf('[', tjPos);
+            if (bracket < 0 || tjPos - bracket > MAX_PDF_ARRAY_LOOKBACK) {
+                from = tjPos + 3;
+                continue;
+            }
+
+            String block = source.substring(bracket + 1, tjPos);
+            collectParenStringsFromBlock(block, chunks);
+            from = tjPos + 3;
+        }
+    }
+
+    private static void collectPlainPdfParenStrings(String source, List<String> chunks) {
+        int scanLen = Math.min(source.length(), MAX_PDF_SCAN_CHARS);
+        collectParenStringsFromBlock(source.substring(0, scanLen), chunks);
+    }
+
+    private static void collectParenStringsFromBlock(String block, List<String> chunks) {
+        for (int i = 0; i < block.length() && chunks.size() < MAX_PDF_TOKEN_CHUNKS; i++) {
+            if (block.charAt(i) != '(') {
+                continue;
+            }
+            int depth = 1;
+            StringBuilder raw = new StringBuilder();
+            for (int j = i + 1; j < block.length() && depth > 0; j++) {
+                char c = block.charAt(j);
+                if (c == '\\' && j + 1 < block.length()) {
+                    raw.append(c).append(block.charAt(j + 1));
+                    j++;
+                    continue;
+                }
+                if (c == '(') {
+                    depth++;
+                } else if (c == ')') {
+                    depth--;
+                    if (depth == 0) {
+                        if (raw.length() > 0 && raw.length() <= 200) {
+                            chunks.add(decodePdfString(raw.toString()));
+                        }
+                        i = j;
+                        break;
+                    }
+                }
+                if (depth > 0) {
+                    raw.append(c);
+                }
             }
         }
     }
