@@ -683,19 +683,13 @@ public class WebServer {
         }
 
         if (chunks.isEmpty()) {
-            Matcher fallback = Pattern.compile("[A-Za-z][A-Za-z0-9 ,.\\-_/()]{15,}").matcher(source);
-            while (fallback.find()) {
-                chunks.add(fallback.group());
-                if (chunks.size() >= 100) {
-                    break;
-                }
-            }
-        }
-
-        if (chunks.isEmpty()) {
             throw new IllegalArgumentException("Cannot extract readable text from PDF. Please try an editable PDF, or convert it to DOCX/TXT");
         }
-        return String.join("\n", chunks);
+        String merged = normalizeWhitespace(String.join("\n", chunks));
+        if (isPdfMetadataNoise(merged)) {
+            throw new IllegalArgumentException("Cannot extract readable text from PDF. Please try an editable PDF, or convert it to DOCX/TXT");
+        }
+        return merged;
     }
 
     private static String decodePdfString(String text) {
@@ -762,6 +756,35 @@ public class WebServer {
         text = text.replaceAll(" +", " ");
         text = text.replaceAll("\\n{3,}", "\n\n");
         return text.trim();
+    }
+
+    private static boolean isPdfMetadataNoise(String text) {
+        if (text == null || text.isBlank()) {
+            return true;
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        String[] noiseTokens = new String[] {
+                "/cidfonttype",
+                "/fontdescriptor",
+                "/basefont",
+                "/fontbbox",
+                "/fontname",
+                "/resources",
+                "/mediabox",
+                "endstream",
+                "endobj",
+                "/catalog",
+                "/type /font"
+        };
+        int hits = 0;
+        for (String token : noiseTokens) {
+            if (lower.contains(token)) {
+                hits++;
+            }
+        }
+        long slashCount = text.chars().filter(ch -> ch == '/').count();
+        boolean tooManySlashes = slashCount > Math.max(20, text.length() / 18);
+        return hits >= 3 || tooManySlashes;
     }
 
     private static void initializeSequenceNumbers() {
