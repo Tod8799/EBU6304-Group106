@@ -37,6 +37,7 @@ let selectedTaJob = null;
 let taResumeText = "";
 let taResumeFileName = "";
 let taResumeFileBase64 = "";
+let taResumeUploaded = false;
 
 function clearProfileForm() {
   const form = document.getElementById("profileForm");
@@ -68,6 +69,7 @@ async function loadAndPopulateProfile() {
       taResumeText = "";
       taResumeFileName = "";
       taResumeFileBase64 = "";
+      taResumeUploaded = false;
       refreshResumeUploadBtn();
     } else {
       notice.classList.add("hidden");
@@ -77,8 +79,9 @@ async function loadAndPopulateProfile() {
       form.elements["major"].value = p.profile.major || "";
       form.elements["phone"].value = p.profile.phone || "";
       taResumeText = p.profile.resumeText || "";
-      taResumeFileName = p.profile.resumeUploaded ? "resume_saved" : "";
+      taResumeFileName = p.profile.resumeFileName || (p.profile.resumeUploaded ? "resume_saved" : "");
       taResumeFileBase64 = "";
+      taResumeUploaded = Boolean(p.profile.resumeUploaded);
       refreshResumeUploadBtn();
     }
   } catch (_) {
@@ -87,6 +90,7 @@ async function loadAndPopulateProfile() {
     taResumeText = "";
     taResumeFileName = "";
     taResumeFileBase64 = "";
+    taResumeUploaded = false;
     refreshResumeUploadBtn();
   }
 }
@@ -187,7 +191,7 @@ function refreshResumeUploadBtn() {
   const btn = document.getElementById("uploadResumeBtn");
   const meta = document.getElementById("resumeMeta");
   if (!btn) return;
-  if (taResumeText) {
+  if (taResumeText || taResumeUploaded) {
     btn.textContent = `Replace Resume (.txt/.pdf/.docx, ${taResumeText.length} chars)`;
     if (meta) {
       const fileLabel = taResumeFileName || "saved_resume";
@@ -499,6 +503,7 @@ function logout() {
   taResumeText = "";
   taResumeFileName = "";
   taResumeFileBase64 = "";
+  taResumeUploaded = false;
   refreshResumeUploadBtn();
   switchRoleView();
   showMessage("Logged out", true);
@@ -585,8 +590,11 @@ document.getElementById("uploadResumeBtn").addEventListener("click", () => {
       } else {
         taResumeText = `[${file.name}] uploaded, text will be extracted on save`;
       }
+      taResumeUploaded = true;
       refreshResumeUploadBtn();
       if (!taResumeText) {
+        taResumeUploaded = false;
+        refreshResumeUploadBtn();
         showMessage("Uploaded file is empty");
         return;
       }

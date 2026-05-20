@@ -140,14 +140,17 @@ public class WebServer {
                         sendJson(exchange, 200, "{\"ok\":true,\"exists\":false}");
                         return;
                     }
+                    String safeResumeText = sanitizeResumeTextForResponse(p.getResumeText());
+                    boolean resumeUploaded = !p.getResumeFileName().isBlank() || !safeResumeText.isBlank();
                     String json = "{\"ok\":true,\"exists\":true,\"profile\":{"
                             + "\"taId\":\"" + esc(p.getTaId()) + "\","
                             + "\"name\":\"" + esc(p.getName()) + "\","
                             + "\"studentId\":\"" + esc(p.getStudentId()) + "\","
                             + "\"major\":\"" + esc(p.getMajor()) + "\","
                             + "\"phone\":\"" + esc(p.getPhone()) + "\","
-                        + "\"resumeText\":\"" + esc(sanitizeResumeTextForResponse(p.getResumeText())) + "\","
-                        + "\"resumeUploaded\":" + (!sanitizeResumeTextForResponse(p.getResumeText()).isBlank()) + "}}";
+                            + "\"resumeText\":\"" + esc(safeResumeText) + "\","
+                            + "\"resumeFileName\":\"" + esc(p.getResumeFileName()) + "\","
+                            + "\"resumeUploaded\":" + resumeUploaded + "}}";
                     sendJson(exchange, 200, json);
                     return;
                 }
@@ -194,7 +197,7 @@ public class WebServer {
                     return;
                 }
 
-                profileDAO.saveOrUpdate(new Profile(taId, name, studentId, major, phone, resumeText));
+                profileDAO.saveOrUpdate(new Profile(taId, name, studentId, major, phone, resumeText, resumeFileName));
                 writeLog(taId, "TA", "TA_PROFILE_SAVE", "TA profile saved.");
                 sendJson(exchange, 200, "{\"ok\":true}");
             } catch (IllegalArgumentException e) {
@@ -679,6 +682,16 @@ public class WebServer {
             while (pieces.find()) {
                 String piece = pieces.group();
                 chunks.add(decodePdfString(piece.substring(1, piece.length() - 1)));
+            }
+        }
+
+        // Fallback for form-like PDFs: values can exist as plain parenthesized strings
+        // without explicit text drawing operators (Tj/TJ).
+        if (chunks.isEmpty()) {
+            Matcher allStrings = Pattern.compile("\\((?:\\\\.|[^\\\\)]){1,200}\\)").matcher(source);
+            while (allStrings.find()) {
+                String token = allStrings.group();
+                chunks.add(decodePdfString(token.substring(1, token.length() - 1)));
             }
         }
 
