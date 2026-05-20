@@ -28,6 +28,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.Inflater;
+import java.util.zip.InflaterInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -471,6 +473,11 @@ public class WebServer {
                 sendJson(exchange, 500, jsonError("Failed to update status"));
                 return;
             }
+            ApplicationRecord latest = applicationDAO.getByAppId(appId);
+            if (latest == null || !status.equalsIgnoreCase(latest.getStatus())) {
+                sendJson(exchange, 500, jsonError("Status update was not persisted"));
+                return;
+            }
 
             String detail = "Updated " + appId + " to " + status;
             if ("Rejected".equalsIgnoreCase(status)) {
@@ -665,6 +672,28 @@ public class WebServer {
         String source = new String(fileBytes, StandardCharsets.ISO_8859_1);
         List<String> chunks = new ArrayList<>();
 
+        collectPdfTextTokens(source, chunks);
+
+        // Many PDFs store readable operators inside FlateDecode streams.
+        for (String streamText : extractFlateDecodedStreams(fileBytes)) {
+            collectPdfTextTokens(streamText, chunks);
+        }
+
+        // Fallback for form-like PDFs: values can exist as plain parenthesized strings
+        // without explicit text drawing operators (Tj/TJ).
+        if (chunks.isEmpty()) {
+            Matcher allStrings = Pattern.compile("\\((?:\\\\.|[^\\\\)]){1,200}\\)").matcher(source);
+            while (allStrings.find()) {
+                String token = allStrings.group();
+                chunks.add(decodePdfString(token.substring(1, token.length() - 1)));
+            }
+        }
+
+        if (chunks.isEmpty()) return "";
+        return cleanupPdfReadableText(chunks);
+    }
+
+    private static void collectPdfTextTokens(String source, List<String> chunks) {
         Matcher direct = Pattern.compile("\\((?:\\\\.|[^\\\\)])*\\)\\s*T[Jj]").matcher(source);
         while (direct.find()) {
             String token = direct.group();
@@ -684,19 +713,80 @@ public class WebServer {
                 chunks.add(decodePdfString(piece.substring(1, piece.length() - 1)));
             }
         }
+    }
 
-        // Fallback for form-like PDFs: values can exist as plain parenthesized strings
-        // without explicit text drawing operators (Tj/TJ).
-        if (chunks.isEmpty()) {
-            Matcher allStrings = Pattern.compile("\\((?:\\\\.|[^\\\\)]){1,200}\\)").matcher(source);
-            while (allStrings.find()) {
-                String token = allStrings.group();
-                chunks.add(decodePdfString(token.substring(1, token.length() - 1)));
+    private static List<String> extractFlateDecodedStreams(byte[] pdfBytes) {
+        List<String> streams = new ArrayList<>();
+        String source = new String(pdfBytes, StandardCharsets.ISO_8859_1);
+        int cursor = 0;
+        while (true) {
+            int streamPos = source.indexOf("stream", cursor);
+            if (streamPos < 0) break;
+            int endStreamPos = source.indexOf("endstream", streamPos);
+            if (endStreamPos < 0) break;
+
+            int dictStart = source.lastIndexOf("<<", streamPos);
+            int dictEnd = dictStart < 0 ? -1 : source.indexOf(">>", dictStart);
+            if (dictStart < 0 || dictEnd < 0 || dictEnd > streamPos) {
+                cursor = endStreamPos + 9;
+                continue;
             }
-        }
 
-        if (chunks.isEmpty()) return "";
-        return cleanupPdfReadableText(chunks);
+            String dict = source.substring(dictStart, dictEnd + 2);
+            if (!dict.contains("/FlateDecode")) {
+                cursor = endStreamPos + 9;
+                continue;
+            }
+
+            int dataStart = streamPos + "stream".length();
+            while (dataStart < source.length()) {
+                char c = source.charAt(dataStart);
+                if (c == '\r' || c == '\n' || c == ' ') {
+                    dataStart++;
+                } else {
+                    break;
+                }
+            }
+
+            int dataEnd = endStreamPos;
+            while (dataEnd > dataStart) {
+                char c = source.charAt(dataEnd - 1);
+                if (c == '\r' || c == '\n' || c == ' ') {
+                    dataEnd--;
+                } else {
+                    break;
+                }
+            }
+            if (dataEnd <= dataStart) {
+                cursor = endStreamPos + 9;
+                continue;
+            }
+
+            byte[] raw = source.substring(dataStart, dataEnd).getBytes(StandardCharsets.ISO_8859_1);
+            String decoded = tryInflate(raw);
+            if (!decoded.isBlank()) {
+                streams.add(decoded);
+            }
+            cursor = endStreamPos + 9;
+        }
+        return streams;
+    }
+
+    private static String tryInflate(byte[] raw) {
+        String decoded = inflateWith(raw, false);
+        if (!decoded.isBlank()) return decoded;
+        return inflateWith(raw, true);
+    }
+
+    private static String inflateWith(byte[] raw, boolean nowrap) {
+        try (ByteArrayInputStream in = new ByteArrayInputStream(raw);
+             InflaterInputStream inflater = new InflaterInputStream(in, new Inflater(nowrap));
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            inflater.transferTo(out);
+            return out.toString(StandardCharsets.ISO_8859_1);
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     private static String decodePdfString(String text) {
