@@ -131,76 +131,78 @@ public class WebServer {
         // 示例：TA建档格式校验 WebServer.java:148，投递前置校验 WebServer.java:201，MO审核状态与权限校验 WebServer.java:390。
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                Map<String, String> query = parseQuery(exchange.getRequestURI().getQuery());
-                String taId = query.getOrDefault("taId", "");
-                Profile p = profileDAO.getByTaId(taId);
-                if (p == null) {
-                    sendJson(exchange, 200, "{\"ok\":true,\"exists\":false}");
+            try {
+                if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    Map<String, String> query = parseQuery(exchange.getRequestURI().getQuery());
+                    String taId = query.getOrDefault("taId", "");
+                    Profile p = profileDAO.getByTaId(taId);
+                    if (p == null) {
+                        sendJson(exchange, 200, "{\"ok\":true,\"exists\":false}");
+                        return;
+                    }
+                    String json = "{\"ok\":true,\"exists\":true,\"profile\":{"
+                            + "\"taId\":\"" + esc(p.getTaId()) + "\","
+                            + "\"name\":\"" + esc(p.getName()) + "\","
+                            + "\"studentId\":\"" + esc(p.getStudentId()) + "\","
+                            + "\"major\":\"" + esc(p.getMajor()) + "\","
+                            + "\"phone\":\"" + esc(p.getPhone()) + "\","
+                            + "\"resumeText\":\"" + esc(p.getResumeText()) + "\","
+                            + "\"resumeUploaded\":" + (!p.getResumeText().isBlank()) + "}}";
+                    sendJson(exchange, 200, json);
                     return;
                 }
-                String json = "{\"ok\":true,\"exists\":true,\"profile\":{"
-                        + "\"taId\":\"" + esc(p.getTaId()) + "\","
-                        + "\"name\":\"" + esc(p.getName()) + "\","
-                        + "\"studentId\":\"" + esc(p.getStudentId()) + "\","
-                        + "\"major\":\"" + esc(p.getMajor()) + "\","
-                        + "\"phone\":\"" + esc(p.getPhone()) + "\","
-                        + "\"resumeText\":\"" + esc(p.getResumeText()) + "\","
-                        + "\"resumeUploaded\":" + (!p.getResumeText().isBlank()) + "}}";
-                sendJson(exchange, 200, json);
-                return;
-            }
 
-            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendJson(exchange, 405, jsonError("Method Not Allowed"));
-                return;
-            }
-
-            Map<String, String> data = parseFormBody(exchange);
-            String taId = data.getOrDefault("taId", "").trim();
-            String name = data.getOrDefault("name", "").trim();
-            String studentId = data.getOrDefault("studentId", "").trim();
-            String major = data.getOrDefault("major", "").trim();
-            String phone = data.getOrDefault("phone", "").trim();
-            String resumeText = data.getOrDefault("resumeText", "");
-            String resumeFileName = data.getOrDefault("resumeFileName", "").trim();
-            String resumeFileBase64 = data.getOrDefault("resumeFileBase64", "").trim();
-
-            if (!studentId.matches("\\d{8}")) {
-                sendJson(exchange, 400, jsonError("Student ID must be exactly 8 digits"));
-                return;
-            }
-            if (!phone.matches("\\d{11}")) {
-                sendJson(exchange, 400, jsonError("Phone must be exactly 11 digits"));
-                return;
-            }
-            if (!resumeFileBase64.isBlank()) {
-                byte[] fileBytes;
-                try {
-                    fileBytes = Base64.getDecoder().decode(resumeFileBase64);
-                } catch (IllegalArgumentException e) {
-                    sendJson(exchange, 400, jsonError("Resume file encoding is invalid"));
+                if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    sendJson(exchange, 405, jsonError("Method Not Allowed"));
                     return;
                 }
-                if (fileBytes.length > 512 * 1024) {
-                    sendJson(exchange, 400, jsonError("Resume file is too large (max 512KB)"));
+
+                Map<String, String> data = parseFormBody(exchange);
+                String taId = data.getOrDefault("taId", "").trim();
+                String name = data.getOrDefault("name", "").trim();
+                String studentId = data.getOrDefault("studentId", "").trim();
+                String major = data.getOrDefault("major", "").trim();
+                String phone = data.getOrDefault("phone", "").trim();
+                String resumeText = data.getOrDefault("resumeText", "");
+                String resumeFileName = data.getOrDefault("resumeFileName", "").trim();
+                String resumeFileBase64 = data.getOrDefault("resumeFileBase64", "").trim();
+
+                if (!studentId.matches("\\d{8}")) {
+                    sendJson(exchange, 400, jsonError("Student ID must be exactly 8 digits"));
                     return;
                 }
-                try {
+                if (!phone.matches("\\d{11}")) {
+                    sendJson(exchange, 400, jsonError("Phone must be exactly 11 digits"));
+                    return;
+                }
+                if (!resumeFileBase64.isBlank()) {
+                    byte[] fileBytes;
+                    try {
+                        fileBytes = Base64.getDecoder().decode(resumeFileBase64);
+                    } catch (IllegalArgumentException e) {
+                        sendJson(exchange, 400, jsonError("Resume file encoding is invalid"));
+                        return;
+                    }
+                    if (fileBytes.length > 512 * 1024) {
+                        sendJson(exchange, 400, jsonError("Resume file is too large (max 512KB)"));
+                        return;
+                    }
                     resumeText = extractResumeText(resumeFileName, fileBytes);
-                } catch (IllegalArgumentException e) {
-                    sendJson(exchange, 400, jsonError(e.getMessage()));
+                }
+                if (resumeText.length() > 20000) {
+                    sendJson(exchange, 400, jsonError("Resume text is too long (max 20000 chars)"));
                     return;
                 }
-            }
-            if (resumeText.length() > 20000) {
-                sendJson(exchange, 400, jsonError("Resume text is too long (max 20000 chars)"));
-                return;
-            }
 
-            profileDAO.saveOrUpdate(new Profile(taId, name, studentId, major, phone, resumeText));
-            writeLog(taId, "TA", "TA_PROFILE_SAVE", "TA profile saved.");
-            sendJson(exchange, 200, "{\"ok\":true}");
+                profileDAO.saveOrUpdate(new Profile(taId, name, studentId, major, phone, resumeText));
+                writeLog(taId, "TA", "TA_PROFILE_SAVE", "TA profile saved.");
+                sendJson(exchange, 200, "{\"ok\":true}");
+            } catch (IllegalArgumentException e) {
+                sendJson(exchange, 400, jsonError(e.getMessage()));
+            } catch (Exception e) {
+                e.printStackTrace();
+                sendJson(exchange, 500, jsonError("Server error while saving profile: " + e.getClass().getSimpleName()));
+            }
         }
     }
 
@@ -827,7 +829,11 @@ public class WebServer {
     }
 
     private static String urlDecode(String s) {
-        return URLDecoder.decode(s, StandardCharsets.UTF_8);
+        try {
+            return URLDecoder.decode(s, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException ignored) {
+            return s;
+        }
     }
 
     // 响应与错误统一

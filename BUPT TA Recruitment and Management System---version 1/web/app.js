@@ -438,8 +438,18 @@ async function api(path, method = "GET", data = null) {
     opt.headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
     opt.body = toFormBody(data);
   }
-  const res = await fetch(path, opt);
-  const json = await res.json();
+  let res;
+  try {
+    res = await fetch(path, opt);
+  } catch (_) {
+    throw new Error("Cannot connect to backend server. Please make sure WebServer is running and check terminal logs.");
+  }
+  let json;
+  try {
+    json = await res.json();
+  } catch (_) {
+    throw new Error(`Server returned non-JSON response (HTTP ${res.status}). Check backend terminal for exception details.`);
+  }
   if (!res.ok || !json.ok) {
     throw new Error(json.error || "Request failed");
   }
