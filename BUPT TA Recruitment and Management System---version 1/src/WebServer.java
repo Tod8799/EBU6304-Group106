@@ -193,10 +193,6 @@ public class WebServer {
                     sendJson(exchange, 400, jsonError("Resume text is too long (max 20000 chars)"));
                     return;
                 }
-                if (!resumeText.isBlank() && isPdfMetadataNoise(normalizeWhitespace(resumeText))) {
-                    sendJson(exchange, 400, jsonError("Detected unreadable PDF metadata text. Please re-upload an editable PDF, or use DOCX/TXT"));
-                    return;
-                }
 
                 profileDAO.saveOrUpdate(new Profile(taId, name, studentId, major, phone, resumeText));
                 writeLog(taId, "TA", "TA_PROFILE_SAVE", "TA profile saved.");
@@ -629,9 +625,8 @@ public class WebServer {
 
         String normalized = normalizeWhitespace(text);
         if (normalized.isBlank()) {
-            if ("pdf".equals(extension)) {
-                throw new IllegalArgumentException("Cannot extract readable text from PDF. Please try an editable PDF, or convert it to DOCX/TXT");
-            }
+            // For PDF, keep silent when no readable text is available.
+            if ("pdf".equals(extension)) return "";
             throw new IllegalArgumentException("Cannot extract readable text from the uploaded resume");
         }
         return normalized;
@@ -687,14 +682,8 @@ public class WebServer {
             }
         }
 
-        if (chunks.isEmpty()) {
-            throw new IllegalArgumentException("Cannot extract readable text from PDF. Please try an editable PDF, or convert it to DOCX/TXT");
-        }
-        String merged = normalizeWhitespace(String.join("\n", chunks));
-        if (isPdfMetadataNoise(merged)) {
-            throw new IllegalArgumentException("Cannot extract readable text from PDF. Please try an editable PDF, or convert it to DOCX/TXT");
-        }
-        return merged;
+        if (chunks.isEmpty()) return "";
+        return cleanupPdfReadableText(chunks);
     }
 
     private static String decodePdfString(String text) {
@@ -797,10 +786,41 @@ public class WebServer {
         if (normalized.isBlank()) {
             return "";
         }
-        if (isPdfMetadataNoise(normalized)) {
-            return "[Unreadable PDF metadata content detected. Please re-upload an editable PDF, or use DOCX/TXT.]";
+        if (!isPdfMetadataNoise(normalized)) return normalized;
+        // Legacy dirty data may already contain metadata noise. Clean it silently.
+        List<String> lines = new ArrayList<>();
+        for (String line : normalized.split("\\n")) {
+            String cleaned = normalizeWhitespace(line);
+            if (!cleaned.isBlank() && !isPdfMetadataNoise(cleaned)) {
+                lines.add(cleaned);
+            }
         }
-        return normalized;
+        return normalizeWhitespace(String.join("\n", lines));
+    }
+
+    private static String cleanupPdfReadableText(List<String> rawChunks) {
+        List<String> kept = new ArrayList<>();
+        for (String chunk : rawChunks) {
+            String text = normalizeWhitespace(chunk);
+            if (text.isBlank()) continue;
+            if (!looksLikeHumanReadableText(text)) continue;
+            if (isPdfMetadataNoise(text)) continue;
+            kept.add(text);
+        }
+        String merged = normalizeWhitespace(String.join("\n", kept));
+        if (isPdfMetadataNoise(merged)) return "";
+        return merged;
+    }
+
+    private static boolean looksLikeHumanReadableText(String text) {
+        if (text == null || text.isBlank()) return false;
+        String lower = text.toLowerCase(Locale.ROOT);
+        if (lower.contains("/type") || lower.contains("/font") || lower.contains("/catalog")) return false;
+        long letterOrDigit = text.chars().filter(Character::isLetterOrDigit).count();
+        if (letterOrDigit < 3) return false;
+        long slashCount = text.chars().filter(ch -> ch == '/').count();
+        if (slashCount > Math.max(3, text.length() / 12)) return false;
+        return true;
     }
 
     private static void initializeSequenceNumbers() {
