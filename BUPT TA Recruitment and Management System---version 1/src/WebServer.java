@@ -940,7 +940,12 @@ public class WebServer {
         if (s == null) {
             return "";
         }
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ");
+        String normalized = s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", " ")
+                .replace("\r", " ");
+        // Strip other control chars to keep JSON valid.
+        return normalized.replaceAll("[\\x00-\\x1F\\x7F]", " ");
     }
 
     private static String getContentType(String path) {

@@ -86,12 +86,8 @@ async function loadAndPopulateProfile() {
     }
   } catch (_) {
     notice.classList.remove("hidden");
-    clearProfileForm();
-    taResumeText = "";
-    taResumeFileName = "";
-    taResumeFileBase64 = "";
-    taResumeUploaded = false;
-    refreshResumeUploadBtn();
+    // Keep existing form state on transient load failures.
+    showMessage("Failed to refresh profile from server. Existing form content is kept.");
   }
 }
 
@@ -312,7 +308,7 @@ async function loadMoReviewPanel() {
 
 async function refreshCurrentJobApplicants() {
   const selectEl = document.getElementById("reviewJobSelect");
-  const currentJobId = selectEl.value;
+  const currentJobId = selectEl.value || (selectedApplicant ? selectedApplicant.jobId : "");
   if (!currentJobId) return;
   const prevAppId = selectedApplicant ? selectedApplicant.appId : null;
   try {
@@ -369,6 +365,17 @@ async function updateSelectedApplicantStatus(newStatus, rejectReason = "") {
       appId: selectedApplicant.appId,
       status: newStatus,
       rejectReason,
+    });
+    selectedApplicant.status = newStatus;
+    renderSelectedApplicant();
+    document.querySelectorAll(".applicant-item").forEach((node) => {
+      if (node.dataset.appId === selectedApplicant.appId) {
+        const badge = node.querySelector(".status-badge");
+        if (badge) {
+          badge.className = `status-badge status-${newStatus.toLowerCase()}`;
+          badge.textContent = newStatus;
+        }
+      }
     });
     showMessage(`Status updated to ${newStatus}`, true);
     await refreshCurrentJobApplicants();
