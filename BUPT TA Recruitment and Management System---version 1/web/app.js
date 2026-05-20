@@ -38,6 +38,12 @@ let taResumeText = "";
 let taResumeFileName = "";
 let taResumeFileBase64 = "";
 
+function clearProfileForm() {
+  const form = document.getElementById("profileForm");
+  if (!form) return;
+  form.reset();
+}
+
 function switchTaTab(tabName) {
   Object.values(taSections).forEach((section) => section.classList.add("hidden"));
   if (taSections[tabName]) {
@@ -58,6 +64,7 @@ async function loadAndPopulateProfile() {
     const p = await api(`/api/ta/profile?taId=${encodeURIComponent(state.id)}`);
     if (!p.exists) {
       notice.classList.remove("hidden");
+      clearProfileForm();
       taResumeText = "";
       taResumeFileName = "";
       taResumeFileBase64 = "";
@@ -76,6 +83,7 @@ async function loadAndPopulateProfile() {
     }
   } catch (_) {
     notice.classList.remove("hidden");
+    clearProfileForm();
     taResumeText = "";
     taResumeFileName = "";
     taResumeFileBase64 = "";
@@ -487,6 +495,11 @@ function switchRoleView() {
 function logout() {
   state.id = "";
   state.role = "";
+  clearProfileForm();
+  taResumeText = "";
+  taResumeFileName = "";
+  taResumeFileBase64 = "";
+  refreshResumeUploadBtn();
   switchRoleView();
   showMessage("Logged out", true);
 }

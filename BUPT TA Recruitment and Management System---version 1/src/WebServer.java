@@ -146,8 +146,8 @@ public class WebServer {
                             + "\"studentId\":\"" + esc(p.getStudentId()) + "\","
                             + "\"major\":\"" + esc(p.getMajor()) + "\","
                             + "\"phone\":\"" + esc(p.getPhone()) + "\","
-                            + "\"resumeText\":\"" + esc(p.getResumeText()) + "\","
-                            + "\"resumeUploaded\":" + (!p.getResumeText().isBlank()) + "}}";
+                        + "\"resumeText\":\"" + esc(sanitizeResumeTextForResponse(p.getResumeText())) + "\","
+                        + "\"resumeUploaded\":" + (!sanitizeResumeTextForResponse(p.getResumeText()).isBlank()) + "}}";
                     sendJson(exchange, 200, json);
                     return;
                 }
@@ -191,6 +191,10 @@ public class WebServer {
                 }
                 if (resumeText.length() > 20000) {
                     sendJson(exchange, 400, jsonError("Resume text is too long (max 20000 chars)"));
+                    return;
+                }
+                if (!resumeText.isBlank() && isPdfMetadataNoise(normalizeWhitespace(resumeText))) {
+                    sendJson(exchange, 400, jsonError("Detected unreadable PDF metadata text. Please re-upload an editable PDF, or use DOCX/TXT"));
                     return;
                 }
 
@@ -407,6 +411,7 @@ public class WebServer {
                 Profile p = profileDAO.getByTaId(r.getTaId());
                 User u = userDAO.getById(r.getTaId());
                 String name = p == null ? "N/A" : p.getName();
+                String safeResumeText = p == null ? "" : sanitizeResumeTextForResponse(p.getResumeText());
                 int activeTaskCount = countActiveTasksForTa(r.getTaId());
                 if (i > 0) {
                     sb.append(',');
@@ -418,7 +423,7 @@ public class WebServer {
                         .append("\"studentId\":\"").append(esc(p == null ? "" : p.getStudentId())).append("\",")
                         .append("\"major\":\"").append(esc(p == null ? "" : p.getMajor())).append("\",")
                         .append("\"phone\":\"").append(esc(p == null ? "" : p.getPhone())).append("\",")
-                        .append("\"resumeText\":\"").append(esc(p == null ? "" : p.getResumeText())).append("\",")
+                        .append("\"resumeText\":\"").append(esc(safeResumeText)).append("\",")
                         .append("\"activeTaskCount\":").append(activeTaskCount).append(",")
                         .append("\"status\":\"").append(esc(r.getStatus())).append("\"}");
             }
@@ -785,6 +790,17 @@ public class WebServer {
         long slashCount = text.chars().filter(ch -> ch == '/').count();
         boolean tooManySlashes = slashCount > Math.max(20, text.length() / 18);
         return hits >= 3 || tooManySlashes;
+    }
+
+    private static String sanitizeResumeTextForResponse(String text) {
+        String normalized = normalizeWhitespace(text);
+        if (normalized.isBlank()) {
+            return "";
+        }
+        if (isPdfMetadataNoise(normalized)) {
+            return "[Unreadable PDF metadata content detected. Please re-upload an editable PDF, or use DOCX/TXT.]";
+        }
+        return normalized;
     }
 
     private static void initializeSequenceNumbers() {
