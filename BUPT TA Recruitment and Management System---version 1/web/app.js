@@ -360,24 +360,25 @@ async function updateSelectedApplicantStatus(newStatus, rejectReason = "") {
     return;
   }
   try {
-    await api("/api/mo/status", "POST", {
+    const result = await api("/api/mo/status", "POST", {
       moId: state.id,
       appId: selectedApplicant.appId,
       status: newStatus,
       rejectReason,
     });
-    selectedApplicant.status = newStatus;
+    const effectiveStatus = result.status || newStatus;
+    selectedApplicant.status = effectiveStatus;
     renderSelectedApplicant();
     document.querySelectorAll(".applicant-item").forEach((node) => {
       if (node.dataset.appId === selectedApplicant.appId) {
         const badge = node.querySelector(".status-badge");
         if (badge) {
-          badge.className = `status-badge status-${newStatus.toLowerCase()}`;
-          badge.textContent = newStatus;
+          badge.className = `status-badge status-${effectiveStatus.toLowerCase()}`;
+          badge.textContent = effectiveStatus;
         }
       }
     });
-    showMessage(`Status updated to ${newStatus}`, true);
+    showMessage(`Status updated to ${effectiveStatus}`, true);
     await refreshCurrentJobApplicants();
   } catch (err) {
     showMessage(err.message);

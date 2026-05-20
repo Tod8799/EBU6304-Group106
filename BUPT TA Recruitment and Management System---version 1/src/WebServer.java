@@ -36,6 +36,10 @@ import java.util.zip.ZipInputStream;
 public class WebServer {
     private static final int PORT = 8080;
     private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int MAX_INFLATED_STREAM_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_PDF_BYTES = 5 * 1024 * 1024;
+    private static final int MAX_PDF_TOKEN_CHUNKS = 200;
+    private static final int MAX_FLATE_STREAMS_TO_SCAN = 40;
 
     private static final UserDAO userDAO = new UserDAO();
     private static final ProfileDAO profileDAO = new ProfileDAO();
@@ -207,6 +211,9 @@ public class WebServer {
             } catch (Exception e) {
                 e.printStackTrace();
                 sendJson(exchange, 500, jsonError("Server error while saving profile: " + e.getClass().getSimpleName()));
+            } catch (Throwable t) {
+                t.printStackTrace();
+                sendJson(exchange, 500, jsonError("Server fatal error while saving profile"));
             }
         }
     }
@@ -484,7 +491,7 @@ public class WebServer {
                 detail += " (reason: " + rejectReason + ")";
             }
             writeLog(moId, "MO", "MO_UPDATE_STATUS", detail);
-            sendJson(exchange, 200, "{\"ok\":true}");
+            sendJson(exchange, 200, "{\"ok\":true,\"status\":\"" + esc(latest.getStatus()) + "\"}");
         }
     }
 
@@ -627,6 +634,9 @@ public class WebServer {
                 text = extractDocxText(fileBytes);
                 break;
             case "pdf":
+                if (fileBytes.length > MAX_PDF_BYTES) {
+                    return "";
+                }
                 text = extractPdfText(fileBytes);
                 break;
             default:
@@ -686,6 +696,7 @@ public class WebServer {
             while (allStrings.find()) {
                 String token = allStrings.group();
                 chunks.add(decodePdfString(token.substring(1, token.length() - 1)));
+                if (chunks.size() >= MAX_PDF_TOKEN_CHUNKS) break;
             }
         }
 
@@ -696,6 +707,7 @@ public class WebServer {
     private static void collectPdfTextTokens(String source, List<String> chunks) {
         Matcher direct = Pattern.compile("\\((?:\\\\.|[^\\\\)])*\\)\\s*T[Jj]").matcher(source);
         while (direct.find()) {
+            if (chunks.size() >= MAX_PDF_TOKEN_CHUNKS) return;
             String token = direct.group();
             int start = token.indexOf('(');
             int end = token.lastIndexOf(')');
@@ -706,9 +718,11 @@ public class WebServer {
 
         Matcher arrayText = Pattern.compile("\\[(.*?)\\]\\s*TJ", Pattern.DOTALL).matcher(source);
         while (arrayText.find()) {
+            if (chunks.size() >= MAX_PDF_TOKEN_CHUNKS) return;
             String block = arrayText.group(1);
             Matcher pieces = Pattern.compile("\\((?:\\\\.|[^\\\\)])*\\)").matcher(block);
             while (pieces.find()) {
+                if (chunks.size() >= MAX_PDF_TOKEN_CHUNKS) return;
                 String piece = pieces.group();
                 chunks.add(decodePdfString(piece.substring(1, piece.length() - 1)));
             }
@@ -720,6 +734,7 @@ public class WebServer {
         String source = new String(pdfBytes, StandardCharsets.ISO_8859_1);
         int cursor = 0;
         while (true) {
+            if (streams.size() >= MAX_FLATE_STREAMS_TO_SCAN) break;
             int streamPos = source.indexOf("stream", cursor);
             if (streamPos < 0) break;
             int endStreamPos = source.indexOf("endstream", streamPos);
@@ -782,7 +797,16 @@ public class WebServer {
         try (ByteArrayInputStream in = new ByteArrayInputStream(raw);
              InflaterInputStream inflater = new InflaterInputStream(in, new Inflater(nowrap));
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            inflater.transferTo(out);
+            byte[] buf = new byte[8192];
+            int total = 0;
+            int n;
+            while ((n = inflater.read(buf)) != -1) {
+                total += n;
+                if (total > MAX_INFLATED_STREAM_BYTES) {
+                    return "";
+                }
+                out.write(buf, 0, n);
+            }
             return out.toString(StandardCharsets.ISO_8859_1);
         } catch (Exception ignored) {
             return "";
@@ -921,6 +945,23 @@ public class WebServer {
         if (lower.contains("/type") || lower.contains("/font") || lower.contains("/catalog")) return false;
         long letterOrDigit = text.chars().filter(Character::isLetterOrDigit).count();
         if (letterOrDigit < 3) return false;
+        long plainPrintable = text.chars().filter(ch ->
+                (ch >= 'a' && ch <= 'z')
+                        || (ch >= 'A' && ch <= 'Z')
+                        || (ch >= '0' && ch <= '9')
+                        || ch == ' '
+                        || ch == '.'
+                        || ch == ','
+                        || ch == ':'
+                        || ch == ';'
+                        || ch == '-'
+                        || ch == '_'
+                        || ch == '/'
+                        || ch == '@'
+                        || ch == '('
+                        || ch == ')'
+        ).count();
+        if (plainPrintable * 100 / Math.max(1, text.length()) < 70) return false;
         long slashCount = text.chars().filter(ch -> ch == '/').count();
         if (slashCount > Math.max(3, text.length() / 12)) return false;
         return true;
