@@ -21,7 +21,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.Comparator;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -29,21 +28,13 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.zip.Inflater;
-import java.util.zip.InflaterInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 public class WebServer {
     private static final int PORT = 8080;
     private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final int MAX_INFLATED_STREAM_BYTES = 2 * 1024 * 1024;
     private static final int MAX_PDF_BYTES = 5 * 1024 * 1024;
-    private static final int MAX_PDF_TOKEN_CHUNKS = 200;
-    private static final int MAX_FLATE_STREAMS_TO_SCAN = 40;
-    private static final int MAX_PDF_SCAN_CHARS = 2_000_000;
-    private static final int MAX_PDF_STRING_LOOKBACK = 600;
-    private static final int MAX_PDF_ARRAY_LOOKBACK = 8000;
 
     private static final UserDAO userDAO = new UserDAO();
     private static final ProfileDAO profileDAO = new ProfileDAO();
@@ -94,6 +85,9 @@ public class WebServer {
             String reqPath = exchange.getRequestURI().getPath();
             if ("/".equals(reqPath)) {
                 reqPath = "/web/index.html";
+            }
+            if ("/favicon.ico".equals(reqPath)) {
+                reqPath = "/web/favicon.ico";
             }
 
             Path filePath = Path.of("." + reqPath).normalize();
@@ -196,8 +190,8 @@ public class WebServer {
                         sendJson(exchange, 400, jsonError("Resume file encoding is invalid"));
                         return;
                     }
-                    if (fileBytes.length > 512 * 1024) {
-                        sendJson(exchange, 400, jsonError("Resume file is too large (max 512KB)"));
+                    if (fileBytes.length > MAX_PDF_BYTES) {
+                        sendJson(exchange, 400, jsonError("Resume file is too large (max 5MB)"));
                         return;
                     }
                     resumeText = extractResumeText(resumeFileName, fileBytes);
@@ -644,9 +638,13 @@ public class WebServer {
                 break;
             case "pdf":
                 if (fileBytes.length > MAX_PDF_BYTES) {
-                    return "";
+                    throw new IllegalArgumentException("Resume PDF is too large (max 5MB)");
                 }
-                text = extractPdfText(fileBytes);
+                try {
+                    text = ResumePdfOcr.extractText(fileBytes);
+                } catch (IOException e) {
+                    throw new IllegalArgumentException("Cannot OCR PDF resume: " + e.getMessage());
+                }
                 break;
             default:
                 throw new IllegalArgumentException("Unsupported resume type. Please upload TXT, DOCX, or PDF");
@@ -655,7 +653,7 @@ public class WebServer {
         String normalized = normalizeWhitespace(text);
         if (normalized.isBlank()) {
             if ("pdf".equals(extension)) {
-                throw new IllegalArgumentException("Cannot extract readable text from image-only scanned PDF");
+                throw new IllegalArgumentException("Cannot read text from this PDF. Please upload a clearer PDF or DOCX.");
             }
             throw new IllegalArgumentException("Cannot extract readable text from the uploaded resume");
         }
@@ -688,266 +686,6 @@ public class WebServer {
         throw new IllegalArgumentException("Cannot read DOCX file");
     }
 
-    private static String extractPdfText(byte[] fileBytes) {
-        String source = new String(fileBytes, StandardCharsets.ISO_8859_1);
-        List<String> chunks = new ArrayList<>();
-
-        collectPdfTextTokens(source, chunks);
-
-        // Many PDFs store readable operators inside FlateDecode streams.
-        for (String streamText : extractFlateDecodedStreams(fileBytes)) {
-            collectPdfTextTokens(streamText, chunks);
-        }
-
-        // Fallback for form-like PDFs: plain parenthesized strings without Tj/TJ operators.
-        if (chunks.isEmpty()) {
-            collectPlainPdfParenStrings(source, chunks);
-        }
-
-        if (chunks.isEmpty()) return "";
-        return cleanupPdfReadableText(chunks);
-    }
-
-    private static void collectPdfTextTokens(String source, List<String> chunks) {
-        if (source == null || source.isEmpty()) return;
-        int scanLen = Math.min(source.length(), MAX_PDF_SCAN_CHARS);
-        String bounded = source.substring(0, scanLen);
-        collectPdfTextBeforeOperator(bounded, "Tj", chunks);
-        collectPdfTextBeforeOperator(bounded, "TJ", chunks);
-        collectPdfArrayText(bounded, chunks);
-    }
-
-    private static void collectPdfTextBeforeOperator(String source, String operator, List<String> chunks) {
-        int from = 0;
-        while (chunks.size() < MAX_PDF_TOKEN_CHUNKS) {
-            int opPos = source.indexOf(operator, from);
-            if (opPos < 0) break;
-
-            int closeParen = opPos - 1;
-            while (closeParen >= 0 && Character.isWhitespace(source.charAt(closeParen))) {
-                closeParen--;
-            }
-            if (closeParen < 0 || source.charAt(closeParen) != ')') {
-                from = opPos + operator.length();
-                continue;
-            }
-
-            int openParen = closeParen - 1;
-            int depth = 0;
-            boolean found = false;
-            while (openParen >= 0 && closeParen - openParen <= MAX_PDF_STRING_LOOKBACK) {
-                char c = source.charAt(openParen);
-                if (c == ')') {
-                    depth++;
-                } else if (c == '(') {
-                    if (depth == 0) {
-                        chunks.add(decodePdfString(source.substring(openParen + 1, closeParen)));
-                        found = true;
-                        break;
-                    }
-                    depth--;
-                }
-                openParen--;
-            }
-            if (!found) {
-                from = opPos + operator.length();
-                continue;
-            }
-            from = opPos + operator.length();
-        }
-    }
-
-    private static void collectPdfArrayText(String source, List<String> chunks) {
-        int from = 0;
-        while (chunks.size() < MAX_PDF_TOKEN_CHUNKS) {
-            int tjPos = source.indexOf(" TJ", from);
-            if (tjPos < 0) {
-                tjPos = source.indexOf("\nTJ", from);
-            }
-            if (tjPos < 0) {
-                break;
-            }
-
-            int bracket = source.lastIndexOf('[', tjPos);
-            if (bracket < 0 || tjPos - bracket > MAX_PDF_ARRAY_LOOKBACK) {
-                from = tjPos + 3;
-                continue;
-            }
-
-            String block = source.substring(bracket + 1, tjPos);
-            collectParenStringsFromBlock(block, chunks);
-            from = tjPos + 3;
-        }
-    }
-
-    private static void collectPlainPdfParenStrings(String source, List<String> chunks) {
-        int scanLen = Math.min(source.length(), MAX_PDF_SCAN_CHARS);
-        collectParenStringsFromBlock(source.substring(0, scanLen), chunks);
-    }
-
-    private static void collectParenStringsFromBlock(String block, List<String> chunks) {
-        for (int i = 0; i < block.length() && chunks.size() < MAX_PDF_TOKEN_CHUNKS; i++) {
-            if (block.charAt(i) != '(') {
-                continue;
-            }
-            int depth = 1;
-            StringBuilder raw = new StringBuilder();
-            for (int j = i + 1; j < block.length() && depth > 0; j++) {
-                char c = block.charAt(j);
-                if (c == '\\' && j + 1 < block.length()) {
-                    raw.append(c).append(block.charAt(j + 1));
-                    j++;
-                    continue;
-                }
-                if (c == '(') {
-                    depth++;
-                } else if (c == ')') {
-                    depth--;
-                    if (depth == 0) {
-                        if (raw.length() > 0 && raw.length() <= 200) {
-                            chunks.add(decodePdfString(raw.toString()));
-                        }
-                        i = j;
-                        break;
-                    }
-                }
-                if (depth > 0) {
-                    raw.append(c);
-                }
-            }
-        }
-    }
-
-    private static List<String> extractFlateDecodedStreams(byte[] pdfBytes) {
-        List<String> streams = new ArrayList<>();
-        String source = new String(pdfBytes, StandardCharsets.ISO_8859_1);
-        int cursor = 0;
-        while (true) {
-            if (streams.size() >= MAX_FLATE_STREAMS_TO_SCAN) break;
-            int streamPos = source.indexOf("stream", cursor);
-            if (streamPos < 0) break;
-            int endStreamPos = source.indexOf("endstream", streamPos);
-            if (endStreamPos < 0) break;
-
-            int dictStart = source.lastIndexOf("<<", streamPos);
-            int dictEnd = dictStart < 0 ? -1 : source.indexOf(">>", dictStart);
-            if (dictStart < 0 || dictEnd < 0 || dictEnd > streamPos) {
-                cursor = endStreamPos + 9;
-                continue;
-            }
-
-            String dict = source.substring(dictStart, dictEnd + 2);
-            if (!dict.contains("/FlateDecode")) {
-                cursor = endStreamPos + 9;
-                continue;
-            }
-
-            int dataStart = streamPos + "stream".length();
-            while (dataStart < source.length()) {
-                char c = source.charAt(dataStart);
-                if (c == '\r' || c == '\n' || c == ' ') {
-                    dataStart++;
-                } else {
-                    break;
-                }
-            }
-
-            int dataEnd = endStreamPos;
-            while (dataEnd > dataStart) {
-                char c = source.charAt(dataEnd - 1);
-                if (c == '\r' || c == '\n' || c == ' ') {
-                    dataEnd--;
-                } else {
-                    break;
-                }
-            }
-            if (dataEnd <= dataStart) {
-                cursor = endStreamPos + 9;
-                continue;
-            }
-
-            byte[] raw = source.substring(dataStart, dataEnd).getBytes(StandardCharsets.ISO_8859_1);
-            String decoded = tryInflate(raw);
-            if (!decoded.isBlank()) {
-                streams.add(decoded);
-            }
-            cursor = endStreamPos + 9;
-        }
-        return streams;
-    }
-
-    private static String tryInflate(byte[] raw) {
-        String decoded = inflateWith(raw, false);
-        if (!decoded.isBlank()) return decoded;
-        return inflateWith(raw, true);
-    }
-
-    private static String inflateWith(byte[] raw, boolean nowrap) {
-        try (ByteArrayInputStream in = new ByteArrayInputStream(raw);
-             InflaterInputStream inflater = new InflaterInputStream(in, new Inflater(nowrap));
-             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            byte[] buf = new byte[8192];
-            int total = 0;
-            int n;
-            while ((n = inflater.read(buf)) != -1) {
-                total += n;
-                if (total > MAX_INFLATED_STREAM_BYTES) {
-                    return "";
-                }
-                out.write(buf, 0, n);
-            }
-            return out.toString(StandardCharsets.ISO_8859_1);
-        } catch (Exception ignored) {
-            return "";
-        }
-    }
-
-    private static String decodePdfString(String text) {
-        StringBuilder out = new StringBuilder();
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c != '\\') {
-                out.append(c);
-                continue;
-            }
-            if (i + 1 >= text.length()) {
-                break;
-            }
-            char next = text.charAt(++i);
-            switch (next) {
-                case 'n': out.append('\n'); break;
-                case 'r': out.append('\r'); break;
-                case 't': out.append('\t'); break;
-                case 'b': out.append('\b'); break;
-                case 'f': out.append('\f'); break;
-                case '(': out.append('('); break;
-                case ')': out.append(')'); break;
-                case '\\': out.append('\\'); break;
-                default:
-                    if (next >= '0' && next <= '7') {
-                        StringBuilder oct = new StringBuilder();
-                        oct.append(next);
-                        for (int k = 0; k < 2 && i + 1 < text.length(); k++) {
-                            char d = text.charAt(i + 1);
-                            if (d < '0' || d > '7') {
-                                break;
-                            }
-                            oct.append(d);
-                            i++;
-                        }
-                        try {
-                            out.append((char) Integer.parseInt(oct.toString(), 8));
-                        } catch (NumberFormatException ignored) {
-                        }
-                    } else {
-                        out.append(next);
-                    }
-                    break;
-            }
-        }
-        return out.toString();
-    }
-
     private static String unescapeXml(String value) {
         return value
                 .replace("&lt;", "<")
@@ -968,92 +706,8 @@ public class WebServer {
         return text.trim();
     }
 
-    private static boolean isPdfMetadataNoise(String text) {
-        if (text == null || text.isBlank()) {
-            return true;
-        }
-        String lower = text.toLowerCase(Locale.ROOT);
-        String[] noiseTokens = new String[] {
-                "/cidfonttype",
-                "/fontdescriptor",
-                "/basefont",
-                "/fontbbox",
-                "/fontname",
-                "/resources",
-                "/mediabox",
-                "endstream",
-                "endobj",
-                "/catalog",
-                "/type /font"
-        };
-        int hits = 0;
-        for (String token : noiseTokens) {
-            if (lower.contains(token)) {
-                hits++;
-            }
-        }
-        long slashCount = text.chars().filter(ch -> ch == '/').count();
-        boolean tooManySlashes = slashCount > Math.max(20, text.length() / 18);
-        return hits >= 3 || tooManySlashes;
-    }
-
     private static String sanitizeResumeTextForResponse(String text) {
-        String normalized = normalizeWhitespace(text);
-        if (normalized.isBlank()) {
-            return "";
-        }
-        if (!isPdfMetadataNoise(normalized)) return normalized;
-        // Legacy dirty data may already contain metadata noise. Clean it silently.
-        List<String> lines = new ArrayList<>();
-        for (String line : normalized.split("\\n")) {
-            String cleaned = normalizeWhitespace(line);
-            if (!cleaned.isBlank() && !isPdfMetadataNoise(cleaned)) {
-                lines.add(cleaned);
-            }
-        }
-        return normalizeWhitespace(String.join("\n", lines));
-    }
-
-    private static String cleanupPdfReadableText(List<String> rawChunks) {
-        List<String> kept = new ArrayList<>();
-        for (String chunk : rawChunks) {
-            String text = normalizeWhitespace(chunk);
-            if (text.isBlank()) continue;
-            if (!looksLikeHumanReadableText(text)) continue;
-            if (isPdfMetadataNoise(text)) continue;
-            kept.add(text);
-        }
-        String merged = normalizeWhitespace(String.join("\n", kept));
-        if (isPdfMetadataNoise(merged)) return "";
-        return merged;
-    }
-
-    private static boolean looksLikeHumanReadableText(String text) {
-        if (text == null || text.isBlank()) return false;
-        String lower = text.toLowerCase(Locale.ROOT);
-        if (lower.contains("/type") || lower.contains("/font") || lower.contains("/catalog")) return false;
-        long letterOrDigit = text.chars().filter(Character::isLetterOrDigit).count();
-        if (letterOrDigit < 3) return false;
-        long plainPrintable = text.chars().filter(ch ->
-                (ch >= 'a' && ch <= 'z')
-                        || (ch >= 'A' && ch <= 'Z')
-                        || (ch >= '0' && ch <= '9')
-                        || ch == ' '
-                        || ch == '.'
-                        || ch == ','
-                        || ch == ':'
-                        || ch == ';'
-                        || ch == '-'
-                        || ch == '_'
-                        || ch == '/'
-                        || ch == '@'
-                        || ch == '('
-                        || ch == ')'
-        ).count();
-        if (plainPrintable * 100 / Math.max(1, text.length()) < 70) return false;
-        long slashCount = text.chars().filter(ch -> ch == '/').count();
-        if (slashCount > Math.max(3, text.length() / 12)) return false;
-        return true;
+        return normalizeWhitespace(text);
     }
 
     private static void initializeSequenceNumbers() {
