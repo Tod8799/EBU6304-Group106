@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TA Recruitment Web UI</title>
+  <title>TA Recruitment Console</title>
   <link rel="stylesheet" href="/web/styles.css" />
 </head>
 <body>
@@ -12,14 +12,14 @@
 
   <main class="app-shell">
     <header class="topbar">
-      <h1>TA Recruitment Console-Web</h1>
+      <h1>TA Recruitment Console</h1>
       <div class="session-info" id="sessionInfo">Not logged in</div>
     </header>
 
     <!-- Step 6-1: 角色化页面入口（登录后切换 TA/MO/Admin 工作区） -->
     <section id="loginView" class="card login-card">
       <h2>Login</h2>
-      <p class="hint">Use default accounts: admin@bupt.edu / mo@bupt.edu / ta@bupt.edu</p>
+      <p class="hint">Sign in with your assigned recruitment account.</p>
       <form id="loginForm" class="grid-form">
         <label>Email<input name="email" required /></label>
         <label>Password<input name="password" type="password" required /></label>

@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TA Recruitment Console</title>
+  <link rel="stylesheet" href="/web/styles.css" />
+</head>
+<body>
+<div class="bg-shape bg-a"></div>
+<div class="bg-shape bg-b"></div>
+
+<main class="app-shell">
+  <header class="topbar">
+    <h1>TA Recruitment Console</h1>
+    <div class="session-info" id="sessionInfo">Not logged in</div>
+  </header>
+
+  <!-- Step 6-1: 角色化页面入口（登录后切换 TA/MO/Admin 工作区） -->
+  <section id="loginView" class="card login-card">
+    <h2>Login</h2>
+    <p class="hint">Sign in with your assigned recruitment account.</p>
+    <form id="loginForm" class="grid-form">
+      <label>Email<input name="email" required /></label>
+      <label>Password<input name="password" type="password" required /></label>
+      <button type="submit">Login</button>
+    </form>
+  </section>
+
+  <!-- Step 6-2: 按业务域拆分页面模块，降低前端耦合 -->
+  <section id="taView" class="card hidden">
+    <div class="role-head">
+      <h2>TA Panel</h2>
+      <button class="ghost" data-action="logout">Logout</button>
+    </div>
+
+    <div class="workspace">
+      <aside class="side-nav">
+        <button class="side-nav-btn active" data-ta-tab="home">Overview</button>
+        <button class="side-nav-btn" data-ta-tab="profile">Profile</button>
+        <button class="side-nav-btn" data-ta-tab="apply">Job Applications</button>
+        <button class="side-nav-btn" data-ta-tab="history">My Applications</button>
+      </aside>
+
+      <div class="content-area">
+        <section id="taHomeSection" class="panel tab-section">
+          <div class="dash-header">
+            <span class="dash-role-badge ta-badge">TA</span>
+            <div>
+              <h3 class="dash-title">Welcome to the TA Recruitment System</h3>
+              <p class="hint">Use the left navigation to select a module.</p>
+            </div>
+          </div>
+          <div class="stat-row">
+            <div class="stat-card" data-stat-nav="ta-profile">
+              <div class="stat-value" id="taProfileStatus">—</div>
+              <div class="stat-label">Profile Status ›</div>
+            </div>
+            <div class="stat-card" data-stat-nav="ta-history">
+              <div class="stat-value" id="taAppsCount">—</div>
+              <div class="stat-label">Application Count ›</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="taProfileSection" class="tab-section hidden">
+          <div id="profileNotice" class="profile-notice hidden">Profile not completed. Please finish your profile before applying for jobs.</div>
+          <form id="profileForm" class="grid-form panel">
+            <h3>Profile</h3>
+            <label>Name<input name="name" required /></label>
+            <label>Student ID (8 digits)<input name="studentId" required /></label>
+            <label>Major<input name="major" required /></label>
+            <label>Phone (11 digits)<input name="phone" required /></label>
+            <div id="resumeMeta" class="hint">Resume not uploaded yet</div>
+            <button type="submit">Save Profile</button>
+            <button id="uploadResumeBtn" type="button" class="ghost">Upload Resume (.txt/.pdf/.docx)</button>
+          </form>
+        </section>
+
+        <section id="taApplySection" class="tab-section hidden">
+          <div class="panel">
+            <h3>Job Applications</h3>
+            <button id="loadOpenJobsBtn">Refresh Open Jobs</button>
+            <div id="openJobs" class="list"></div>
+            <div id="taJobRequirementView" class="ta-job-requirement hidden">
+              <h4 id="taReqJobTitle">Job Requirements</h4>
+              <p id="taReqJobMeta" class="hint"></p>
+              <div id="taReqJobContent" class="resume-placeholder"></div>
+              <div class="review-actions">
+                <button id="taReqApplyBtn" type="button">Apply</button>
+                <button id="taReqIgnoreBtn" type="button" class="alt">Ignore</button>
+                <button id="taReqBackBtn" type="button" class="ghost">Back</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="taHistorySection" class="tab-section hidden">
+          <div class="panel">
+            <h3>My Applications</h3>
+            <button id="loadMyAppsBtn" class="ghost">Refresh Applications</button>
+            <div id="myApps" class="list"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section id="moView" class="card hidden">
+    <div class="role-head">
+      <h2>MO Panel</h2>
+      <button class="ghost" data-action="logout">Logout</button>
+    </div>
+
+    <div class="mo-workspace">
+      <aside class="mo-nav">
+        <button class="mo-nav-btn active" data-mo-tab="home">Overview</button>
+        <button class="mo-nav-btn" data-mo-tab="jobs">Job Management</button>
+        <button class="mo-nav-btn" data-mo-tab="review">Application Review</button>
+      </aside>
+
+      <div class="mo-content">
+        <section id="moHomeSection" class="panel mo-section">
+          <div class="dash-header">
+            <span class="dash-role-badge mo-badge">MO</span>
+            <div>
+              <h3 class="dash-title">MO Workspace</h3>
+              <p class="hint">Use the left navigation to select a module.</p>
+            </div>
+          </div>
+          <div class="stat-row">
+            <div class="stat-card" data-stat-nav="mo-jobs">
+              <div class="stat-value" id="moJobsCount">—</div>
+              <div class="stat-label">Posted Jobs ›</div>
+            </div>
+            <div class="stat-card" data-stat-nav="mo-review">
+              <div class="stat-value" id="moPendingCount">—</div>
+              <div class="stat-label">Pending Applications ›</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="moJobsSection" class="mo-section hidden">
+          <div class="grid-two">
+            <!-- Step 6-7: 闭环演示链路中的“MO 发布岗位”入口 -->
+            <form id="jobForm" class="grid-form panel">
+              <h3>Post Job</h3>
+              <label>Job Title<input name="title" required /></label>
+              <div class="requirement-tree">
+                <p class="hint">Core Requirements (Two-level)</p>
+                <details class="req-item">
+                  <summary>English Level</summary>
+                  <label>Select English Level
+                    <select name="englishLevel" required>
+                      <option value="">Please select</option>
+                      <option value="CET-4">CET-4</option>
+                      <option value="CET-6">CET-6</option>
+                      <option value="No limit">No limit</option>
+                    </select>
+                  </label>
+                </details>
+
+                <details class="req-item">
+                  <summary>Work Duration</summary>
+                  <label>Select Work Duration
+                    <select name="workDuration" required>
+                      <option value="">Please select</option>
+                      <option value="Within one week">Within one week</option>
+                      <option value="Within one month">Within one month</option>
+                      <option value="Within one semester">Within one semester</option>
+                    </select>
+                  </label>
+                </details>
+
+                <details class="req-item">
+                  <summary>Weekend Availability</summary>
+                  <label>Select Availability
+                    <select name="weekendAvailable" required>
+                      <option value="">Please select</option>
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </label>
+                </details>
+              </div>
+              <label>Custom Requirements
+                <textarea name="customRequirements" rows="3" placeholder="Optional: enter any additional requirements"></textarea>
+              </label>
+              <label>Deadline<input name="deadline" type="text" placeholder="xxxx/xx/xx" pattern="\d{4}/\d{2}/\d{2}" required /></label>
+              <button type="submit">Post Job</button>
+            </form>
+
+            <div class="panel">
+              <h3>My Job List</h3>
+              <button id="loadMyJobsBtn">Refresh My Jobs</button>
+              <div id="myJobs" class="list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="moReviewSection" class="mo-section hidden">
+          <div class="grid-two">
+            <div class="panel">
+              <h3>View Applicants</h3>
+              <div class="grid-form compact review-toolbar">
+                <label>Job List
+                  <select id="reviewJobSelect">
+                    <option value="">Refresh jobs first</option>
+                  </select>
+                </label>
+                <button id="refreshReviewJobsBtn" type="button">Refresh Jobs & Applicants</button>
+              </div>
+              <div id="applicants" class="list"></div>
+            </div>
+
+            <div id="reviewDetailPanel" class="panel review-detail hidden">
+              <h3>Application Details (Resume Preview)</h3>
+              <div id="selectedApplicantMeta" class="review-meta">Select an applicant on the left first</div>
+              <div class="resume-placeholder" id="selectedApplicantResume">No resume uploaded yet.</div>
+              <label class="reject-reason-field">Rejection reason (required for Reject)
+                <input id="rejectReasonInput" type="text" placeholder="Enter reason before clicking Reject" />
+              </label>
+              <div class="review-actions decision-actions">
+                <button id="approveApplicantBtn" type="button">Approve</button>
+                <button id="rejectApplicantBtn" type="button" class="alt">Reject</button>
+                <button id="backToApplicantsBtn" type="button" class="ghost">Back</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section id="adminView" class="card hidden">
+    <div class="role-head">
+      <h2>Admin Panel</h2>
+      <button class="ghost" data-action="logout">Logout</button>
+    </div>
+
+    <div class="workspace">
+      <aside class="side-nav">
+        <button class="side-nav-btn active" data-admin-tab="home">Overview</button>
+        <button class="side-nav-btn" data-admin-tab="metrics">Global Metrics</button>
+        <button class="side-nav-btn" data-admin-tab="logs">Operation Logs</button>
+      </aside>
+
+      <div class="content-area">
+        <section id="adminHomeSection" class="panel tab-section">
+          <div class="dash-header">
+            <span class="dash-role-badge admin-badge">Admin</span>
+            <div>
+              <h3 class="dash-title">Admin Workspace</h3>
+              <p class="hint">Use the left navigation to select a module.</p>
+            </div>
+          </div>
+          <div class="stat-row">
+            <div class="stat-card" data-stat-nav="admin-metrics"><div class="stat-value" id="adminTotalJobs">—</div><div class="stat-label">Total Jobs ›</div></div>
+            <div class="stat-card" data-stat-nav="admin-metrics"><div class="stat-value" id="adminOpenJobs">—</div><div class="stat-label">Open Jobs ›</div></div>
+            <div class="stat-card" data-stat-nav="admin-metrics"><div class="stat-value" id="adminTotalApps">—</div><div class="stat-label">Total Applications ›</div></div>
+            <div class="stat-card" data-stat-nav="admin-logs"><div class="stat-value" id="adminCompleteRate">—</div><div class="stat-label">Completion Rate ›</div></div>
+          </div>
+        </section>
+
+        <section id="adminMetricsSection" class="tab-section hidden">
+          <div class="panel">
+            <h3>Global Metrics</h3>
+            <button id="loadMetricsBtn">Refresh Metrics</button>
+            <div id="metrics" class="list"></div>
+          </div>
+        </section>
+
+        <section id="adminLogsSection" class="tab-section hidden">
+          <div class="panel">
+            <h3>Operation Logs (Read-only)</h3>
+            <button id="loadLogsBtn">Refresh Logs</button>
+            <div id="logs" class="list tall"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden"></div>
+</main>
+
+<script src="/web/app.js"></script>
+</body>
+</html>
