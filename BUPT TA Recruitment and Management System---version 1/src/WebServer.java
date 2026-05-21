@@ -335,13 +335,14 @@ public class WebServer {
             }
 
             Map<String, String> data = parseFormBody(exchange);
-            String moId = data.getOrDefault("moId", "").trim();
-            String title = data.getOrDefault("title", "").trim();
-            String requirements = data.getOrDefault("requirements", "").trim();
-            String deadline = data.getOrDefault("deadline", "").trim();
+            String moId = data.getOrDefault("moId", "").strip();
+            String title = data.getOrDefault("title", "").strip();
+            String requirements = data.getOrDefault("requirements", "").strip();
+            String deadline = data.getOrDefault("deadline", "").strip();
 
-            if (moId.isBlank() || title.isBlank() || requirements.isBlank() || deadline.isBlank()) {
-                sendJson(exchange, 400, jsonError("All job fields are required"));
+            if (isEffectivelyBlank(moId) || isEffectivelyBlank(title)
+                    || isEffectivelyBlank(requirements) || isEffectivelyBlank(deadline)) {
+                sendJson(exchange, 400, jsonError("Job fields cannot be empty"));
                 return;
             }
 
@@ -611,6 +612,19 @@ public class WebServer {
                 || "Hired".equalsIgnoreCase(status);
     }
 
+    private static boolean isEffectivelyBlank(String value) {
+        if (value == null || value.isEmpty()) {
+            return true;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (!Character.isWhitespace(c) && !Character.isSpaceChar(c)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static int countActiveTasksForTa(String taId) {
         int count = 0;
         for (ApplicationRecord record : applicationDAO.getByTaId(taId)) {
@@ -643,7 +657,8 @@ public class WebServer {
                 try {
                     text = ResumePdfOcr.extractText(fileBytes);
                 } catch (IOException e) {
-                    throw new IllegalArgumentException("Cannot OCR PDF resume: " + e.getMessage());
+                    throw new IllegalArgumentException(
+                            "Cannot OCR scanned/corrupted PDF. Please convert it to DOCX/TXT and upload again.");
                 }
                 break;
             default:
