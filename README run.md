@@ -1,183 +1,192 @@
 # TA Recruitment System (Console + Web)
 
-本项目是一个基于 Java 的 TA 招聘管理系统，包含：
-- 控制台版本入口：`Main`
-- Web 版本入口：`WebServer`
-- 数据持久化：`data/*.csv`
-- 前端页面：`web/index.html`
+This project is a Java-based Teaching Assistant recruitment and management system.
+It provides:
 
-## 1. 环境要求
+- a console entry point: `Main`
+- a web entry point: `WebServer`
+- CSV file persistence under `data/`
+- a browser UI under `web/`
 
-- JDK 17 或更高版本
-- Windows PowerShell（本文命令按 PowerShell 编写）
+## 1) Requirements
 
-验证 Java 版本：
+- JDK 17+ (JDK 21/23 also works)
+- Windows PowerShell (commands below are PowerShell style)
+- Internet access on first run (to download OCR dependencies)
+
+Check Java:
 
 ```powershell
 java -version
 javac -version
 ```
 
-## 2. 项目结构
+## 2) Repository Layout
 
 ```text
-src/
-  Main.java
-  WebServer.java
-  dao/
-  model/
-data/
-  users.csv
-  profiles.csv
-  jobs.csv
-  applications.csv
-  logs.csv
-web/
-  index.html
-  app.js
-  styles.css
+BUPT TA Recruitment and Management System---version 1/
+  src/
+    Main.java
+    WebServer.java
+    ResumePdfOcr.java
+    dao/
+    model/
+  data/
+    users.csv
+    profiles.csv
+    jobs.csv
+    applications.csv
+    logs.csv
+  web/
+    index.html
+    app.js
+    styles.css
+    favicon.ico
+  scripts/
+    setup-portable-ocr.ps1
+  run.ps1
 ```
 
-## 3. 一键编译命令
+## 3) Start the Web App (Recommended)
 
-在项目根目录执行：
+From project root:
 
 ```powershell
-javac -encoding UTF-8 -d out src\model\*.java src\dao\*.java src\Main.java src\WebServer.java
+cd ".\BUPT TA Recruitment and Management System---version 1"
+powershell -ExecutionPolicy Bypass -File .\run.ps1
 ```
 
-## 4. 运行命令
+`run.ps1` will:
 
-### 4.1 运行 Web 版（推荐演示）
+1. set up OCR runtime and Java dependencies (first run only),
+2. compile sources,
+3. start `WebServer` on `http://localhost:8080`.
 
-```powershell
-java -cp out WebServer
-```
-
-启动成功后访问：
+Open:
 
 ```text
 http://localhost:8080
 ```
 
-### 4.2 运行控制台版
+## 4) OCR Behavior for PDF Resumes
+
+PDF processing uses a hybrid strategy:
+
+1. try embedded text extraction first (best for digital PDFs),
+2. fall back to OCR for scanned/image PDFs.
+
+If OCR cannot read a scanned/corrupted PDF, the API returns a clear guidance message:
+`Please convert it to DOCX/TXT and upload again.`
+
+## 5) Run Console Mode
+
+From project root:
 
 ```powershell
+cd ".\BUPT TA Recruitment and Management System---version 1"
+javac -encoding UTF-8 -d out src\model\*.java src\dao\*.java src\Main.java
 java -cp out Main
 ```
 
-## 5. 默认账号
+## 6) Default Accounts
 
-- Admin：`admin@bupt.edu / admin123`
-- MO：`mo@bupt.edu / mo123`
-- TA：`ta@bupt.edu / ta123`
+- Admin: `admin@bupt.edu / admin123`
+- MO: `mo@bupt.edu / mo123`
+- TA: `ta@bupt.edu / ta123`
 
-## 6. 完整功能演示样例（Web）
+## 7) Quick Functional Walkthrough (Web)
 
-下面是一套可以覆盖主要功能的演示脚本，按顺序执行即可。
-
-### Step 0：重置演示数据（可选，但推荐）
-
-执行一行命令清空业务数据（保留用户账号）：
+### Step 0: Reset demo data (optional)
 
 ```powershell
-'' | Set-Content .\data\profiles.csv; '' | Set-Content .\data\jobs.csv; '' | Set-Content .\data\applications.csv; '' | Set-Content .\data\logs.csv
+'' | Set-Content .\data\profiles.csv
+'' | Set-Content .\data\jobs.csv
+'' | Set-Content .\data\applications.csv
+'' | Set-Content .\data\logs.csv
 ```
 
-### Step 1：MO 发布岗位
+### Step 1: MO posts jobs
 
-1. 使用 `mo@bupt.edu / mo123` 登录。
-2. 进入 `Job Management`。
-3. 在 `Post Job` 填写：
-   - Job Title：`Java TA - Spring 2026`
-   - English Level：`CET-6`
-   - Work Duration：`Within one semester`
-   - Weekend Availability：`Yes`
-   - Custom Requirements：`Need Java OOP and basic SQL; can hold weekly office hours`
-   - Deadline：填未来日期，例如 `2026/05/30`
-4. 点击 `Post Job`。
-5. 在右侧 `My Job List` 点击 `Refresh My Jobs`，应看到新发布岗位。
+1. Login as MO.
+2. Go to `Job Management`.
+3. Fill all fields and post a job.
 
-预期结果：
-- 岗位创建成功并生成 `JOBxxx`。
-- `data/jobs.csv` 新增一条记录。
-- `requirements` 字段同时包含三段下拉要求 + 自由输入要求。
+Validation notes:
 
-### Step 2：TA 完善资料并投递
+- empty/whitespace-only fields are rejected,
+- invalid date is rejected,
+- past deadline is rejected.
 
-1. 退出登录，使用 `ta@bupt.edu / ta123` 登录。
-2. 进入 `Profile`，填写：
-   - Name：`Alice`
-   - Student ID：`20231234`
-   - Major：`Computer Science`
-   - Phone：`13800138000`
-3. 点击 `Save Profile`。
-4. 进入 `Job Applications`，点击 `Refresh Open Jobs`。
-5. 选择 MO 刚发布岗位，点击 `View Requirements`。
-6. 在要求详情里点击 `Apply`。
-7. 进入 `My Applications`，点击 `Refresh Applications`。
+### Step 2: TA creates profile and uploads resume
 
-预期结果：
-- 成功投递，状态为 `Pending`。
-- `data/profiles.csv`、`data/applications.csv` 有新增记录。
+1. Login as TA.
+2. Fill profile fields (`Student ID` 8 digits, `Phone` 11 digits).
+3. Upload `txt/pdf/docx` resume and click save.
 
-### Step 3：MO 审核申请
+### Step 3: TA applies for jobs
 
-1. 退出登录，再次使用 `mo@bupt.edu / mo123` 登录。
-2. 进入 `Application Review`。
-3. 点击 `Refresh Jobs & Applicants`。
-4. 在左侧选择对应 Job，点击申请人卡片。
-5. 点击 `Approve`（或 `Reject` 并输入拒绝原因）。
+1. Open `Job Applications`.
+2. Refresh open jobs.
+3. View requirements and apply.
 
-预期结果：
-- 申请状态变更为 `Shortlisted` 或 `Rejected`。
-- 若拒绝，拒绝理由会写入申请记录。
+### Step 4: MO reviews applicants
 
-### Step 4：TA 查看审核结果
+1. Login as MO.
+2. Go to `Application Review`.
+3. Refresh jobs and applicants.
+4. Approve or reject (reject requires reason).
 
-1. 退出登录，使用 `ta@bupt.edu / ta123` 登录。
-2. 进入 `My Applications`，点击 `Refresh Applications`。
+### Step 5: Admin checks system status
 
-预期结果：
-- 能看到最新状态（`Shortlisted` 或 `Rejected`）及拒绝原因（如有）。
+1. Login as Admin.
+2. Open `Global Metrics` and `Operation Logs`.
 
-### Step 5：Admin 查看全局指标和日志
+## 8) Troubleshooting
 
-1. 退出登录，使用 `admin@bupt.edu / admin123` 登录。
-2. 进入 `Global Metrics`，点击 `Refresh Metrics`。
-3. 进入 `Operation Logs`，点击 `Refresh Logs`。
-
-预期结果：
-- 指标统计包含岗位数、开放岗位数、申请数、完成率。
-- 日志包含登录、发岗位、保存资料、投递、审核等行为。
-
-## 7. 常见问题
-
-### Q1：编译报错“找不到符号”
-
-先确认在项目根目录执行，且使用了完整编译命令（包含 `src/model` 与 `src/dao`）。
-
-### Q2：访问不了网页
-
-- 确认已执行 `java -cp out WebServer`
-- 确认端口 `8080` 未被占用
-- 访问地址必须是 `http://localhost:8080`
-
-### Q3：Deadline 格式不通过
-
-前端要求输入：`yyyy/MM/dd`（例如 `2026/05/30`），提交后后端会转为 `yyyy-MM-dd`。
-
-## 8. 快速复现命令清单
+### 8.1 Port 8080 is already in use
 
 ```powershell
-# 1) 编译
-javac -encoding UTF-8 -d out src\model\*.java src\dao\*.java src\Main.java src\WebServer.java
-
-# 2) 运行 Web
-java -cp out WebServer
-
-# 3) (新终端) 清空业务数据
-'' | Set-Content .\data\profiles.csv; '' | Set-Content .\data\jobs.csv; '' | Set-Content .\data\applications.csv; '' | Set-Content .\data\logs.csv
+netstat -ano | Select-String ":8080"
+taskkill /PID <PID> /F
 ```
 
-至此即可完成项目完整功能演示。
+### 8.2 `Failed to fetch` on frontend
+
+- Ensure `run.ps1` is still running.
+- Check terminal output for backend exception stack traces.
+- Hard refresh browser (`Ctrl+F5`).
+
+### 8.3 PDF upload returns 400
+
+Common causes:
+
+- unsupported extension (only `txt/pdf/docx`),
+- file too large (`max 5MB`),
+- scanned/corrupted PDF that OCR cannot read.
+
+For unreadable scanned PDFs, convert to DOCX/TXT and upload again.
+
+### 8.4 OCR setup issues on new computers
+
+Run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-portable-ocr.ps1
+```
+
+Then rerun:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+
+## 9) E2E Script (Optional)
+
+If you use the external script `E2EBusinessLogicTest.java`, compile and run from project root:
+
+```powershell
+javac -encoding UTF-8 -d . "d:\Download\E2EBusinessLogicTest.java"
+java E2EBusinessLogicTest
+```
+
+Note: the script expects a valid `test_cv.pdf` under the project directory for one PDF test phase.
