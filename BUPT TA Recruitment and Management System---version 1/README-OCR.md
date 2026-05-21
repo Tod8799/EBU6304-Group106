@@ -1,45 +1,46 @@
-# 便携 OCR 方案（新电脑尽量零手动安装）
+# Portable OCR Setup (Near Zero Manual Steps)
 
-本项目 PDF 简历已改为 **纯视觉 OCR**：
+This project uses a **visual OCR pipeline** for PDF resumes:
 
-1. **PDFBox**：把 PDF 每一页渲染成图片（200 DPI）  
-2. **Tess4J + Tesseract**：对图片做 OCR，提取中英文文字  
+1. **PDFBox** renders each PDF page to an image.
+2. **Tesseract OCR** extracts text from those images.
 
-不再解析 PDF 内嵌文本流，扫描件/纯图片 PDF 也可识别。
+This means scanned/image-based PDFs are supported and the old raw PDF token parsing path is no longer used.
 
-## 新电脑第一次运行
+## First Run on a New Machine
 
-只需安装 **JDK 17+**，在项目根目录执行：
+Install **JDK 17+** first, then run from the project root:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\run.ps1
 ```
 
-`run.ps1` 会自动：
+`run.ps1` will automatically:
 
-- 下载 `lib/*.jar`（PDFBox、Tess4J 等，Maven 中央仓库）
-- 下载 `vendor/tesseract/tessdata` 语言包
-- 若本机没有 Tesseract，会尝试用 **winget** 安装一次并复制到 `vendor/tesseract/`（无需你手动点安装向导）
-- 编译并启动 `WebServer`
+- download Java dependencies into `lib/` (PDFBox, OCR-related JARs, etc.),
+- prepare OCR runtime under `vendor/tesseract/`,
+- attempt a one-time `winget` install of Tesseract if it is missing,
+- compile source files and start `WebServer`.
 
-**你不需要**自己再去装 Poppler、配置环境变量；跑通一次 `run.ps1` 即可。
+You do **not** need to manually install Poppler or set OCR environment variables.
 
-## 手动仅安装 OCR 依赖（可选）
+## Optional: Setup OCR Dependencies Only
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\setup-portable-ocr.ps1
 ```
 
-## 目录结构
+## Directory Overview
 
+```text
+lib/                    # Downloaded Java dependency JARs
+vendor/tesseract/       # Portable tesseract.exe + tessdata/
+src/ResumePdfOcr.java   # OCR implementation entry
 ```
-lib/                    # Java 依赖 JAR（脚本自动下载）
-vendor/tesseract/       # 便携 tesseract.exe + tessdata/
-src/ResumePdfOcr.java   # OCR 实现
-```
 
-## 说明
+## Notes
 
-- 默认识别前 **3 页**，分辨率 **200 DPI**
-- 语言：若存在 `chi_sim.traineddata` 与 `eng.traineddata` 则使用 `chi_sim+eng`
-- 纯扫描件 PDF 走 OCR；不再解析 PDF 内嵌文本流
+- OCR scans up to the first **5 pages**.
+- Render DPI is tuned for OCR quality (currently **300 DPI**).
+- If both language packs exist, OCR uses `chi_sim+eng`; otherwise it falls back to available packs.
+- For scanned/corrupted PDFs that still cannot be recognized, the backend returns a conversion hint to upload DOCX/TXT.
