@@ -26,14 +26,24 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.Inflater;
+import java.util.zip.InflaterInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 public class WebServer {
     private static final int PORT = 8080;
     private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int MAX_INFLATED_STREAM_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_PDF_BYTES = 5 * 1024 * 1024;
+    private static final int MAX_PDF_TOKEN_CHUNKS = 200;
+    private static final int MAX_FLATE_STREAMS_TO_SCAN = 40;
+    private static final int MAX_PDF_SCAN_CHARS = 2_000_000;
+    private static final int MAX_PDF_STRING_LOOKBACK = 600;
+    private static final int MAX_PDF_ARRAY_LOOKBACK = 8000;
 
     private static final UserDAO userDAO = new UserDAO();
     private static final ProfileDAO profileDAO = new ProfileDAO();
@@ -65,7 +75,7 @@ public class WebServer {
         server.createContext("/api/admin/logs", new AdminLogsHandler());
         server.createContext("/api/reset", new ResetHandler());
 
-        server.setExecutor(null);
+        server.setExecutor(Executors.newFixedThreadPool(8));
         server.start();
         System.out.println("Web UI started: http://localhost:" + PORT);
     }
@@ -131,76 +141,84 @@ public class WebServer {
         // 示例：TA建档格式校验 WebServer.java:148，投递前置校验 WebServer.java:201，MO审核状态与权限校验 WebServer.java:390。
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                Map<String, String> query = parseQuery(exchange.getRequestURI().getQuery());
-                String taId = query.getOrDefault("taId", "");
-                Profile p = profileDAO.getByTaId(taId);
-                if (p == null) {
-                    sendJson(exchange, 200, "{\"ok\":true,\"exists\":false}");
+            try {
+                if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    Map<String, String> query = parseQuery(exchange.getRequestURI().getQuery());
+                    String taId = query.getOrDefault("taId", "");
+                    Profile p = profileDAO.getByTaId(taId);
+                    if (p == null) {
+                        sendJson(exchange, 200, "{\"ok\":true,\"exists\":false}");
+                        return;
+                    }
+                    String safeResumeText = sanitizeResumeTextForResponse(p.getResumeText());
+                    boolean resumeUploaded = !p.getResumeFileName().isBlank() || !safeResumeText.isBlank();
+                    String json = "{\"ok\":true,\"exists\":true,\"profile\":{"
+                            + "\"taId\":\"" + esc(p.getTaId()) + "\","
+                            + "\"name\":\"" + esc(p.getName()) + "\","
+                            + "\"studentId\":\"" + esc(p.getStudentId()) + "\","
+                            + "\"major\":\"" + esc(p.getMajor()) + "\","
+                            + "\"phone\":\"" + esc(p.getPhone()) + "\","
+                            + "\"resumeText\":\"" + esc(safeResumeText) + "\","
+                            + "\"resumeFileName\":\"" + esc(p.getResumeFileName()) + "\","
+                            + "\"resumeUploaded\":" + resumeUploaded + "}}";
+                    sendJson(exchange, 200, json);
                     return;
                 }
-                String json = "{\"ok\":true,\"exists\":true,\"profile\":{"
-                        + "\"taId\":\"" + esc(p.getTaId()) + "\","
-                        + "\"name\":\"" + esc(p.getName()) + "\","
-                        + "\"studentId\":\"" + esc(p.getStudentId()) + "\","
-                        + "\"major\":\"" + esc(p.getMajor()) + "\","
-                        + "\"phone\":\"" + esc(p.getPhone()) + "\","
-                        + "\"resumeText\":\"" + esc(p.getResumeText()) + "\","
-                        + "\"resumeUploaded\":" + (!p.getResumeText().isBlank()) + "}}";
-                sendJson(exchange, 200, json);
-                return;
-            }
 
-            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendJson(exchange, 405, jsonError("Method Not Allowed"));
-                return;
-            }
-
-            Map<String, String> data = parseFormBody(exchange);
-            String taId = data.getOrDefault("taId", "").trim();
-            String name = data.getOrDefault("name", "").trim();
-            String studentId = data.getOrDefault("studentId", "").trim();
-            String major = data.getOrDefault("major", "").trim();
-            String phone = data.getOrDefault("phone", "").trim();
-            String resumeText = data.getOrDefault("resumeText", "");
-            String resumeFileName = data.getOrDefault("resumeFileName", "").trim();
-            String resumeFileBase64 = data.getOrDefault("resumeFileBase64", "").trim();
-
-            if (!studentId.matches("\\d{8}")) {
-                sendJson(exchange, 400, jsonError("Student ID must be exactly 8 digits"));
-                return;
-            }
-            if (!phone.matches("\\d{11}")) {
-                sendJson(exchange, 400, jsonError("Phone must be exactly 11 digits"));
-                return;
-            }
-            if (!resumeFileBase64.isBlank()) {
-                byte[] fileBytes;
-                try {
-                    fileBytes = Base64.getDecoder().decode(resumeFileBase64);
-                } catch (IllegalArgumentException e) {
-                    sendJson(exchange, 400, jsonError("Resume file encoding is invalid"));
+                if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    sendJson(exchange, 405, jsonError("Method Not Allowed"));
                     return;
                 }
-                if (fileBytes.length > 512 * 1024) {
-                    sendJson(exchange, 400, jsonError("Resume file is too large (max 512KB)"));
+
+                Map<String, String> data = parseFormBody(exchange);
+                String taId = data.getOrDefault("taId", "").trim();
+                String name = data.getOrDefault("name", "").trim();
+                String studentId = data.getOrDefault("studentId", "").trim();
+                String major = data.getOrDefault("major", "").trim();
+                String phone = data.getOrDefault("phone", "").trim();
+                String resumeText = data.getOrDefault("resumeText", "");
+                String resumeFileName = data.getOrDefault("resumeFileName", "").trim();
+                String resumeFileBase64 = data.getOrDefault("resumeFileBase64", "").trim();
+
+                if (!studentId.matches("\\d{8}")) {
+                    sendJson(exchange, 400, jsonError("Student ID must be exactly 8 digits"));
                     return;
                 }
-                try {
+                if (!phone.matches("\\d{11}")) {
+                    sendJson(exchange, 400, jsonError("Phone must be exactly 11 digits"));
+                    return;
+                }
+                if (!resumeFileBase64.isBlank()) {
+                    byte[] fileBytes;
+                    try {
+                        fileBytes = Base64.getDecoder().decode(resumeFileBase64);
+                    } catch (IllegalArgumentException e) {
+                        sendJson(exchange, 400, jsonError("Resume file encoding is invalid"));
+                        return;
+                    }
+                    if (fileBytes.length > 512 * 1024) {
+                        sendJson(exchange, 400, jsonError("Resume file is too large (max 512KB)"));
+                        return;
+                    }
                     resumeText = extractResumeText(resumeFileName, fileBytes);
-                } catch (IllegalArgumentException e) {
-                    sendJson(exchange, 400, jsonError(e.getMessage()));
+                }
+                if (resumeText.length() > 20000) {
+                    sendJson(exchange, 400, jsonError("Resume text is too long (max 20000 chars)"));
                     return;
                 }
-            }
-            if (resumeText.length() > 20000) {
-                sendJson(exchange, 400, jsonError("Resume text is too long (max 20000 chars)"));
-                return;
-            }
 
-            profileDAO.saveOrUpdate(new Profile(taId, name, studentId, major, phone, resumeText));
-            writeLog(taId, "TA", "TA_PROFILE_SAVE", "TA profile saved.");
-            sendJson(exchange, 200, "{\"ok\":true}");
+                profileDAO.saveOrUpdate(new Profile(taId, name, studentId, major, phone, resumeText, resumeFileName));
+                writeLog(taId, "TA", "TA_PROFILE_SAVE", "TA profile saved.");
+                sendJson(exchange, 200, "{\"ok\":true,\"parsedLength\":" + resumeText.length() + "}");
+            } catch (IllegalArgumentException e) {
+                sendJson(exchange, 400, jsonError(e.getMessage()));
+            } catch (Exception e) {
+                e.printStackTrace();
+                sendJson(exchange, 500, jsonError("Server error while saving profile: " + e.getClass().getSimpleName()));
+            } catch (Throwable t) {
+                t.printStackTrace();
+                sendJson(exchange, 500, jsonError("Server fatal error while saving profile"));
+            }
         }
     }
 
@@ -328,6 +346,11 @@ public class WebServer {
             String requirements = data.getOrDefault("requirements", "").trim();
             String deadline = data.getOrDefault("deadline", "").trim();
 
+            if (moId.isBlank() || title.isBlank() || requirements.isBlank() || deadline.isBlank()) {
+                sendJson(exchange, 400, jsonError("All job fields are required"));
+                return;
+            }
+
             LocalDate date;
             try {
                 date = LocalDate.parse(deadline);
@@ -405,6 +428,7 @@ public class WebServer {
                 Profile p = profileDAO.getByTaId(r.getTaId());
                 User u = userDAO.getById(r.getTaId());
                 String name = p == null ? "N/A" : p.getName();
+                String safeResumeText = p == null ? "" : sanitizeResumeTextForResponse(p.getResumeText());
                 int activeTaskCount = countActiveTasksForTa(r.getTaId());
                 if (i > 0) {
                     sb.append(',');
@@ -416,7 +440,7 @@ public class WebServer {
                         .append("\"studentId\":\"").append(esc(p == null ? "" : p.getStudentId())).append("\",")
                         .append("\"major\":\"").append(esc(p == null ? "" : p.getMajor())).append("\",")
                         .append("\"phone\":\"").append(esc(p == null ? "" : p.getPhone())).append("\",")
-                        .append("\"resumeText\":\"").append(esc(p == null ? "" : p.getResumeText())).append("\",")
+                        .append("\"resumeText\":\"").append(esc(safeResumeText)).append("\",")
                         .append("\"activeTaskCount\":").append(activeTaskCount).append(",")
                         .append("\"status\":\"").append(esc(r.getStatus())).append("\"}");
             }
@@ -465,13 +489,18 @@ public class WebServer {
                 sendJson(exchange, 500, jsonError("Failed to update status"));
                 return;
             }
+            ApplicationRecord latest = applicationDAO.getByAppId(appId);
+            if (latest == null || !status.equalsIgnoreCase(latest.getStatus())) {
+                sendJson(exchange, 500, jsonError("Status update was not persisted"));
+                return;
+            }
 
             String detail = "Updated " + appId + " to " + status;
             if ("Rejected".equalsIgnoreCase(status)) {
                 detail += " (reason: " + rejectReason + ")";
             }
             writeLog(moId, "MO", "MO_UPDATE_STATUS", detail);
-            sendJson(exchange, 200, "{\"ok\":true}");
+            sendJson(exchange, 200, "{\"ok\":true,\"status\":\"" + esc(latest.getStatus()) + "\"}");
         }
     }
 
@@ -614,6 +643,9 @@ public class WebServer {
                 text = extractDocxText(fileBytes);
                 break;
             case "pdf":
+                if (fileBytes.length > MAX_PDF_BYTES) {
+                    return "";
+                }
                 text = extractPdfText(fileBytes);
                 break;
             default:
@@ -623,7 +655,7 @@ public class WebServer {
         String normalized = normalizeWhitespace(text);
         if (normalized.isBlank()) {
             if ("pdf".equals(extension)) {
-                throw new IllegalArgumentException("Cannot extract readable text from PDF. Please try an editable PDF, or convert it to DOCX/TXT");
+                throw new IllegalArgumentException("Cannot extract readable text from image-only scanned PDF");
             }
             throw new IllegalArgumentException("Cannot extract readable text from the uploaded resume");
         }
@@ -660,40 +692,214 @@ public class WebServer {
         String source = new String(fileBytes, StandardCharsets.ISO_8859_1);
         List<String> chunks = new ArrayList<>();
 
-        Matcher direct = Pattern.compile("\\((?:\\\\.|[^\\\\)])*\\)\\s*T[Jj]").matcher(source);
-        while (direct.find()) {
-            String token = direct.group();
-            int start = token.indexOf('(');
-            int end = token.lastIndexOf(')');
-            if (start >= 0 && end > start) {
-                chunks.add(decodePdfString(token.substring(start + 1, end)));
-            }
+        collectPdfTextTokens(source, chunks);
+
+        // Many PDFs store readable operators inside FlateDecode streams.
+        for (String streamText : extractFlateDecodedStreams(fileBytes)) {
+            collectPdfTextTokens(streamText, chunks);
         }
 
-        Matcher arrayText = Pattern.compile("\\[(.*?)\\]\\s*TJ", Pattern.DOTALL).matcher(source);
-        while (arrayText.find()) {
-            String block = arrayText.group(1);
-            Matcher pieces = Pattern.compile("\\((?:\\\\.|[^\\\\)])*\\)").matcher(block);
-            while (pieces.find()) {
-                String piece = pieces.group();
-                chunks.add(decodePdfString(piece.substring(1, piece.length() - 1)));
-            }
-        }
-
+        // Fallback for form-like PDFs: plain parenthesized strings without Tj/TJ operators.
         if (chunks.isEmpty()) {
-            Matcher fallback = Pattern.compile("[A-Za-z][A-Za-z0-9 ,.\\-_/()]{15,}").matcher(source);
-            while (fallback.find()) {
-                chunks.add(fallback.group());
-                if (chunks.size() >= 100) {
-                    break;
+            collectPlainPdfParenStrings(source, chunks);
+        }
+
+        if (chunks.isEmpty()) return "";
+        return cleanupPdfReadableText(chunks);
+    }
+
+    private static void collectPdfTextTokens(String source, List<String> chunks) {
+        if (source == null || source.isEmpty()) return;
+        int scanLen = Math.min(source.length(), MAX_PDF_SCAN_CHARS);
+        String bounded = source.substring(0, scanLen);
+        collectPdfTextBeforeOperator(bounded, "Tj", chunks);
+        collectPdfTextBeforeOperator(bounded, "TJ", chunks);
+        collectPdfArrayText(bounded, chunks);
+    }
+
+    private static void collectPdfTextBeforeOperator(String source, String operator, List<String> chunks) {
+        int from = 0;
+        while (chunks.size() < MAX_PDF_TOKEN_CHUNKS) {
+            int opPos = source.indexOf(operator, from);
+            if (opPos < 0) break;
+
+            int closeParen = opPos - 1;
+            while (closeParen >= 0 && Character.isWhitespace(source.charAt(closeParen))) {
+                closeParen--;
+            }
+            if (closeParen < 0 || source.charAt(closeParen) != ')') {
+                from = opPos + operator.length();
+                continue;
+            }
+
+            int openParen = closeParen - 1;
+            int depth = 0;
+            boolean found = false;
+            while (openParen >= 0 && closeParen - openParen <= MAX_PDF_STRING_LOOKBACK) {
+                char c = source.charAt(openParen);
+                if (c == ')') {
+                    depth++;
+                } else if (c == '(') {
+                    if (depth == 0) {
+                        chunks.add(decodePdfString(source.substring(openParen + 1, closeParen)));
+                        found = true;
+                        break;
+                    }
+                    depth--;
+                }
+                openParen--;
+            }
+            if (!found) {
+                from = opPos + operator.length();
+                continue;
+            }
+            from = opPos + operator.length();
+        }
+    }
+
+    private static void collectPdfArrayText(String source, List<String> chunks) {
+        int from = 0;
+        while (chunks.size() < MAX_PDF_TOKEN_CHUNKS) {
+            int tjPos = source.indexOf(" TJ", from);
+            if (tjPos < 0) {
+                tjPos = source.indexOf("\nTJ", from);
+            }
+            if (tjPos < 0) {
+                break;
+            }
+
+            int bracket = source.lastIndexOf('[', tjPos);
+            if (bracket < 0 || tjPos - bracket > MAX_PDF_ARRAY_LOOKBACK) {
+                from = tjPos + 3;
+                continue;
+            }
+
+            String block = source.substring(bracket + 1, tjPos);
+            collectParenStringsFromBlock(block, chunks);
+            from = tjPos + 3;
+        }
+    }
+
+    private static void collectPlainPdfParenStrings(String source, List<String> chunks) {
+        int scanLen = Math.min(source.length(), MAX_PDF_SCAN_CHARS);
+        collectParenStringsFromBlock(source.substring(0, scanLen), chunks);
+    }
+
+    private static void collectParenStringsFromBlock(String block, List<String> chunks) {
+        for (int i = 0; i < block.length() && chunks.size() < MAX_PDF_TOKEN_CHUNKS; i++) {
+            if (block.charAt(i) != '(') {
+                continue;
+            }
+            int depth = 1;
+            StringBuilder raw = new StringBuilder();
+            for (int j = i + 1; j < block.length() && depth > 0; j++) {
+                char c = block.charAt(j);
+                if (c == '\\' && j + 1 < block.length()) {
+                    raw.append(c).append(block.charAt(j + 1));
+                    j++;
+                    continue;
+                }
+                if (c == '(') {
+                    depth++;
+                } else if (c == ')') {
+                    depth--;
+                    if (depth == 0) {
+                        if (raw.length() > 0 && raw.length() <= 200) {
+                            chunks.add(decodePdfString(raw.toString()));
+                        }
+                        i = j;
+                        break;
+                    }
+                }
+                if (depth > 0) {
+                    raw.append(c);
                 }
             }
         }
+    }
 
-        if (chunks.isEmpty()) {
-            throw new IllegalArgumentException("Cannot extract readable text from PDF. Please try an editable PDF, or convert it to DOCX/TXT");
+    private static List<String> extractFlateDecodedStreams(byte[] pdfBytes) {
+        List<String> streams = new ArrayList<>();
+        String source = new String(pdfBytes, StandardCharsets.ISO_8859_1);
+        int cursor = 0;
+        while (true) {
+            if (streams.size() >= MAX_FLATE_STREAMS_TO_SCAN) break;
+            int streamPos = source.indexOf("stream", cursor);
+            if (streamPos < 0) break;
+            int endStreamPos = source.indexOf("endstream", streamPos);
+            if (endStreamPos < 0) break;
+
+            int dictStart = source.lastIndexOf("<<", streamPos);
+            int dictEnd = dictStart < 0 ? -1 : source.indexOf(">>", dictStart);
+            if (dictStart < 0 || dictEnd < 0 || dictEnd > streamPos) {
+                cursor = endStreamPos + 9;
+                continue;
+            }
+
+            String dict = source.substring(dictStart, dictEnd + 2);
+            if (!dict.contains("/FlateDecode")) {
+                cursor = endStreamPos + 9;
+                continue;
+            }
+
+            int dataStart = streamPos + "stream".length();
+            while (dataStart < source.length()) {
+                char c = source.charAt(dataStart);
+                if (c == '\r' || c == '\n' || c == ' ') {
+                    dataStart++;
+                } else {
+                    break;
+                }
+            }
+
+            int dataEnd = endStreamPos;
+            while (dataEnd > dataStart) {
+                char c = source.charAt(dataEnd - 1);
+                if (c == '\r' || c == '\n' || c == ' ') {
+                    dataEnd--;
+                } else {
+                    break;
+                }
+            }
+            if (dataEnd <= dataStart) {
+                cursor = endStreamPos + 9;
+                continue;
+            }
+
+            byte[] raw = source.substring(dataStart, dataEnd).getBytes(StandardCharsets.ISO_8859_1);
+            String decoded = tryInflate(raw);
+            if (!decoded.isBlank()) {
+                streams.add(decoded);
+            }
+            cursor = endStreamPos + 9;
         }
-        return String.join("\n", chunks);
+        return streams;
+    }
+
+    private static String tryInflate(byte[] raw) {
+        String decoded = inflateWith(raw, false);
+        if (!decoded.isBlank()) return decoded;
+        return inflateWith(raw, true);
+    }
+
+    private static String inflateWith(byte[] raw, boolean nowrap) {
+        try (ByteArrayInputStream in = new ByteArrayInputStream(raw);
+             InflaterInputStream inflater = new InflaterInputStream(in, new Inflater(nowrap));
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[8192];
+            int total = 0;
+            int n;
+            while ((n = inflater.read(buf)) != -1) {
+                total += n;
+                if (total > MAX_INFLATED_STREAM_BYTES) {
+                    return "";
+                }
+                out.write(buf, 0, n);
+            }
+            return out.toString(StandardCharsets.ISO_8859_1);
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     private static String decodePdfString(String text) {
@@ -762,6 +968,94 @@ public class WebServer {
         return text.trim();
     }
 
+    private static boolean isPdfMetadataNoise(String text) {
+        if (text == null || text.isBlank()) {
+            return true;
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        String[] noiseTokens = new String[] {
+                "/cidfonttype",
+                "/fontdescriptor",
+                "/basefont",
+                "/fontbbox",
+                "/fontname",
+                "/resources",
+                "/mediabox",
+                "endstream",
+                "endobj",
+                "/catalog",
+                "/type /font"
+        };
+        int hits = 0;
+        for (String token : noiseTokens) {
+            if (lower.contains(token)) {
+                hits++;
+            }
+        }
+        long slashCount = text.chars().filter(ch -> ch == '/').count();
+        boolean tooManySlashes = slashCount > Math.max(20, text.length() / 18);
+        return hits >= 3 || tooManySlashes;
+    }
+
+    private static String sanitizeResumeTextForResponse(String text) {
+        String normalized = normalizeWhitespace(text);
+        if (normalized.isBlank()) {
+            return "";
+        }
+        if (!isPdfMetadataNoise(normalized)) return normalized;
+        // Legacy dirty data may already contain metadata noise. Clean it silently.
+        List<String> lines = new ArrayList<>();
+        for (String line : normalized.split("\\n")) {
+            String cleaned = normalizeWhitespace(line);
+            if (!cleaned.isBlank() && !isPdfMetadataNoise(cleaned)) {
+                lines.add(cleaned);
+            }
+        }
+        return normalizeWhitespace(String.join("\n", lines));
+    }
+
+    private static String cleanupPdfReadableText(List<String> rawChunks) {
+        List<String> kept = new ArrayList<>();
+        for (String chunk : rawChunks) {
+            String text = normalizeWhitespace(chunk);
+            if (text.isBlank()) continue;
+            if (!looksLikeHumanReadableText(text)) continue;
+            if (isPdfMetadataNoise(text)) continue;
+            kept.add(text);
+        }
+        String merged = normalizeWhitespace(String.join("\n", kept));
+        if (isPdfMetadataNoise(merged)) return "";
+        return merged;
+    }
+
+    private static boolean looksLikeHumanReadableText(String text) {
+        if (text == null || text.isBlank()) return false;
+        String lower = text.toLowerCase(Locale.ROOT);
+        if (lower.contains("/type") || lower.contains("/font") || lower.contains("/catalog")) return false;
+        long letterOrDigit = text.chars().filter(Character::isLetterOrDigit).count();
+        if (letterOrDigit < 3) return false;
+        long plainPrintable = text.chars().filter(ch ->
+                (ch >= 'a' && ch <= 'z')
+                        || (ch >= 'A' && ch <= 'Z')
+                        || (ch >= '0' && ch <= '9')
+                        || ch == ' '
+                        || ch == '.'
+                        || ch == ','
+                        || ch == ':'
+                        || ch == ';'
+                        || ch == '-'
+                        || ch == '_'
+                        || ch == '/'
+                        || ch == '@'
+                        || ch == '('
+                        || ch == ')'
+        ).count();
+        if (plainPrintable * 100 / Math.max(1, text.length()) < 70) return false;
+        long slashCount = text.chars().filter(ch -> ch == '/').count();
+        if (slashCount > Math.max(3, text.length() / 12)) return false;
+        return true;
+    }
+
     private static void initializeSequenceNumbers() {
         int maxJob = 0;
         int maxApp = 0;
@@ -827,7 +1121,11 @@ public class WebServer {
     }
 
     private static String urlDecode(String s) {
-        return URLDecoder.decode(s, StandardCharsets.UTF_8);
+        try {
+            return URLDecoder.decode(s, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException ignored) {
+            return s;
+        }
     }
 
     // 响应与错误统一
@@ -862,7 +1160,12 @@ public class WebServer {
         if (s == null) {
             return "";
         }
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ");
+        String normalized = s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", " ")
+                .replace("\r", " ");
+        // Strip other control chars to keep JSON valid.
+        return normalized.replaceAll("[\\x00-\\x1F\\x7F]", " ");
     }
 
     private static String getContentType(String path) {

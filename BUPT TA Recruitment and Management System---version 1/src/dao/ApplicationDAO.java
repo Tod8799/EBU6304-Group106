@@ -125,19 +125,21 @@ public class ApplicationDAO {
         }
 
         if (updated) {
-            rewriteAll(records);
+            return rewriteAll(records);
         }
-        return updated;
+        return false;
     }
 
-    private void rewriteAll(List<ApplicationRecord> records) {
+    private boolean rewriteAll(List<ApplicationRecord> records) {
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FILE_PATH, false))) {
             for (ApplicationRecord record : records) {
                 bw.write(record.toCsvLine());
                 bw.newLine();
             }
+            return true;
         } catch (IOException e) {
             System.out.println("[Error] Failed to update applications: " + e.getMessage());
+            return false;
         }
     }
 

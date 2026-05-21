@@ -37,6 +37,13 @@ let selectedTaJob = null;
 let taResumeText = "";
 let taResumeFileName = "";
 let taResumeFileBase64 = "";
+let taResumeUploaded = false;
+
+function clearProfileForm() {
+  const form = document.getElementById("profileForm");
+  if (!form) return;
+  form.reset();
+}
 
 function switchTaTab(tabName) {
   Object.values(taSections).forEach((section) => section.classList.add("hidden"));
@@ -58,9 +65,11 @@ async function loadAndPopulateProfile() {
     const p = await api(`/api/ta/profile?taId=${encodeURIComponent(state.id)}`);
     if (!p.exists) {
       notice.classList.remove("hidden");
+      clearProfileForm();
       taResumeText = "";
       taResumeFileName = "";
       taResumeFileBase64 = "";
+      taResumeUploaded = false;
       refreshResumeUploadBtn();
     } else {
       notice.classList.add("hidden");
@@ -70,16 +79,15 @@ async function loadAndPopulateProfile() {
       form.elements["major"].value = p.profile.major || "";
       form.elements["phone"].value = p.profile.phone || "";
       taResumeText = p.profile.resumeText || "";
-      taResumeFileName = p.profile.resumeUploaded ? "resume_saved" : "";
+      taResumeFileName = p.profile.resumeFileName || (p.profile.resumeUploaded ? "resume_saved" : "");
       taResumeFileBase64 = "";
+      taResumeUploaded = Boolean(p.profile.resumeUploaded);
       refreshResumeUploadBtn();
     }
   } catch (_) {
     notice.classList.remove("hidden");
-    taResumeText = "";
-    taResumeFileName = "";
-    taResumeFileBase64 = "";
-    refreshResumeUploadBtn();
+    // Keep existing form state on transient load failures.
+    showMessage("Failed to refresh profile from server. Existing form content is kept.");
   }
 }
 
@@ -179,7 +187,7 @@ function refreshResumeUploadBtn() {
   const btn = document.getElementById("uploadResumeBtn");
   const meta = document.getElementById("resumeMeta");
   if (!btn) return;
-  if (taResumeText) {
+  if (taResumeText || taResumeUploaded) {
     btn.textContent = `Replace Resume (.txt/.pdf/.docx, ${taResumeText.length} chars)`;
     if (meta) {
       const fileLabel = taResumeFileName || "saved_resume";
@@ -300,7 +308,7 @@ async function loadMoReviewPanel() {
 
 async function refreshCurrentJobApplicants() {
   const selectEl = document.getElementById("reviewJobSelect");
-  const currentJobId = selectEl.value;
+  const currentJobId = selectEl.value || (selectedApplicant ? selectedApplicant.jobId : "");
   if (!currentJobId) return;
   const prevAppId = selectedApplicant ? selectedApplicant.appId : null;
   try {
@@ -352,13 +360,25 @@ async function updateSelectedApplicantStatus(newStatus, rejectReason = "") {
     return;
   }
   try {
-    await api("/api/mo/status", "POST", {
+    const result = await api("/api/mo/status", "POST", {
       moId: state.id,
       appId: selectedApplicant.appId,
       status: newStatus,
       rejectReason,
     });
-    showMessage(`Status updated to ${newStatus}`, true);
+    const effectiveStatus = result.status || newStatus;
+    selectedApplicant.status = effectiveStatus;
+    renderSelectedApplicant();
+    document.querySelectorAll(".applicant-item").forEach((node) => {
+      if (node.dataset.appId === selectedApplicant.appId) {
+        const badge = node.querySelector(".status-badge");
+        if (badge) {
+          badge.className = `status-badge status-${effectiveStatus.toLowerCase()}`;
+          badge.textContent = effectiveStatus;
+        }
+      }
+    });
+    showMessage(`Status updated to ${effectiveStatus}`, true);
     await refreshCurrentJobApplicants();
   } catch (err) {
     showMessage(err.message);
@@ -438,8 +458,18 @@ async function api(path, method = "GET", data = null) {
     opt.headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
     opt.body = toFormBody(data);
   }
-  const res = await fetch(path, opt);
-  const json = await res.json();
+  let res;
+  try {
+    res = await fetch(path, opt);
+  } catch (_) {
+    throw new Error("Cannot connect to backend server. Please make sure WebServer is running and check terminal logs.");
+  }
+  let json;
+  try {
+    json = await res.json();
+  } catch (_) {
+    throw new Error(`Server returned non-JSON response (HTTP ${res.status}). Check backend terminal for exception details.`);
+  }
   if (!res.ok || !json.ok) {
     throw new Error(json.error || "Request failed");
   }
@@ -477,6 +507,12 @@ function switchRoleView() {
 function logout() {
   state.id = "";
   state.role = "";
+  clearProfileForm();
+  taResumeText = "";
+  taResumeFileName = "";
+  taResumeFileBase64 = "";
+  taResumeUploaded = false;
+  refreshResumeUploadBtn();
   switchRoleView();
   showMessage("Logged out", true);
 }
@@ -519,7 +555,7 @@ document.getElementById("profileForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
   try {
-    await api("/api/ta/profile", "POST", {
+    const result = await api("/api/ta/profile", "POST", {
       taId: state.id,
       name: fd.get("name"),
       studentId: fd.get("studentId"),
@@ -531,7 +567,8 @@ document.getElementById("profileForm").addEventListener("submit", async (e) => {
     });
     taResumeFileBase64 = "";
     await loadAndPopulateProfile();
-    showMessage("Profile saved", true);
+    const parsedLen = typeof result.parsedLength === "number" ? result.parsedLength : taResumeText.length;
+    showMessage(`Profile saved (parsed ${parsedLen} chars)`, true);
   } catch (err) {
     showMessage(err.message);
   }
@@ -562,8 +599,11 @@ document.getElementById("uploadResumeBtn").addEventListener("click", () => {
       } else {
         taResumeText = `[${file.name}] uploaded, text will be extracted on save`;
       }
+      taResumeUploaded = true;
       refreshResumeUploadBtn();
       if (!taResumeText) {
+        taResumeUploaded = false;
+        refreshResumeUploadBtn();
         showMessage("Uploaded file is empty");
         return;
       }
@@ -716,16 +756,20 @@ document.getElementById("rejectApplicantBtn").addEventListener("click", async ()
     showMessage("Please select an applicant first");
     return;
   }
-  const reason = prompt("Enter rejection reason:", "");
-  if (reason === null) {
-    return;
-  }
-  const trimmed = reason.trim();
+  const rejectBtn = document.getElementById("rejectApplicantBtn");
+  const trimmed = document.getElementById("rejectReasonInput").value.trim();
   if (!trimmed) {
     showMessage("Rejection reason cannot be empty");
+    document.getElementById("rejectReasonInput").focus();
     return;
   }
-  await updateSelectedApplicantStatus("Rejected", trimmed);
+  rejectBtn.disabled = true;
+  try {
+    await updateSelectedApplicantStatus("Rejected", trimmed);
+    document.getElementById("rejectReasonInput").value = "";
+  } finally {
+    rejectBtn.disabled = false;
+  }
 });
 
 document.getElementById("backToApplicantsBtn").addEventListener("click", () => {
