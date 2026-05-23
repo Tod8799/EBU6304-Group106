@@ -149,7 +149,7 @@ public class E2EBusinessLogicTest {
         }
 
         try {
-            byte[] oversized = new byte[512 * 1024 + 1];
+            byte[] oversized = new byte[5 * 1024 * 1024 + 100];
             Response huge = saveProfileForm(TA_ID, "E2E TA", "20231234", "Computer Science",
                     "13800138000", "too_large.txt", oversized);
             if (huge.status >= 400 && huge.body.toLowerCase().contains("too large")) {
@@ -178,10 +178,10 @@ public class E2EBusinessLogicTest {
                     .getBytes(StandardCharsets.ISO_8859_1);
             Response scanned = saveProfileForm(TA_ID, "E2E TA", "20231234", "Computer Science",
                     "13800138000", "scan.pdf", scannedPdf);
-            if (scanned.status >= 400 && (scanned.body.contains("DOCX") || scanned.body.contains("TXT"))) {
-                pass("Phase 2.A3: Scanned PDF warning returned");
+            if (scanned.status == 400 || scanned.body.contains("Cannot OCR PDF resume")) {
+                pass("Phase 2.A3: Scanned PDF rejected with OCR error");
             } else {
-                fail("Phase 2.A3", "Scanned/image-only PDF should warn to convert to DOCX/TXT, got " + scanned);
+                fail("Phase 2.A3", "Scanned/image-only PDF should be rejected with Cannot OCR PDF resume or HTTP 400, got " + scanned);
             }
         } catch (IOException e) {
             System.out.println("❌ FAIL Phase 2.X: Backend crashed (Connection dropped) during PDF upload.");
@@ -442,25 +442,44 @@ public class E2EBusinessLogicTest {
         return pdfBytes;
     }
 
-    private static byte[] loadRealPdfPayload() throws IOException {
-        Path localPdf = Path.of("test_cv.pdf");
-        if (Files.exists(localPdf)) {
-            return Files.readAllBytes(localPdf);
-        }
+    private static byte[] loadRealPdfPayload() {
         return minimalTextPdf("Readable PDF resume for E2E test. Java TA applicant.");
     }
 
     private static byte[] minimalTextPdf(String text) {
         String escaped = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)");
-        String pdf = "%PDF-1.4\n"
-                + "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
-                + "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
-                + "3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n"
-                + "4 0 obj << /Length 80 >> stream\n"
-                + "BT /F1 12 Tf 72 720 Td (" + escaped + ") Tj ET\n"
-                + "endstream endobj\n"
-                + "%%EOF";
-        return pdf.getBytes(StandardCharsets.ISO_8859_1);
+        String content = "BT /F1 12 Tf 72 720 Td (" + escaped + ") Tj ET";
+        String[] objects = {
+                "<< /Type /Catalog /Pages 2 0 R >>",
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+                "<< /Length " + content.getBytes(StandardCharsets.ISO_8859_1).length + " >>\nstream\n" + content + "\nendstream",
+                "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+        };
+
+        StringBuilder pdf = new StringBuilder();
+        java.util.List<Integer> offsets = new java.util.ArrayList<>();
+        pdf.append("%PDF-1.4\n");
+        for (int i = 0; i < objects.length; i++) {
+            offsets.add(pdf.toString().getBytes(StandardCharsets.ISO_8859_1).length);
+            pdf.append(i + 1).append(" 0 obj\n")
+                    .append(objects[i]).append("\n")
+                    .append("endobj\n");
+        }
+
+        int xrefOffset = pdf.toString().getBytes(StandardCharsets.ISO_8859_1).length;
+        pdf.append("xref\n")
+                .append("0 ").append(objects.length + 1).append("\n")
+                .append("0000000000 65535 f \n");
+        for (int offset : offsets) {
+            pdf.append(String.format("%010d 00000 n \n", offset));
+        }
+        pdf.append("trailer\n")
+                .append("<< /Size ").append(objects.length + 1).append(" /Root 1 0 R >>\n")
+                .append("startxref\n")
+                .append(xrefOffset).append("\n")
+                .append("%%EOF\n");
+        return pdf.toString().getBytes(StandardCharsets.ISO_8859_1);
     }
 
     private static Response get(String path) throws IOException, InterruptedException {
