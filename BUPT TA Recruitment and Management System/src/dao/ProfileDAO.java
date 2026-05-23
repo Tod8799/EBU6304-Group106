@@ -1,7 +1,5 @@
 package dao;
 
-import model.Profile;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -10,10 +8,15 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import model.Profile;
 
+/**
+ * CSV-backed persistence for Profile (reads/writes data/profiles.csv).
+ */
 public class ProfileDAO {
     private static final String FILE_PATH = "data/profiles.csv";
 
+    /** Constructor that ensures the data file exists. */
     public ProfileDAO() {
         ensureFile();
     }
@@ -30,6 +33,10 @@ public class ProfileDAO {
         }
     }
 
+    /**
+     * Read all profiles.
+     * @return list of Profile
+     */
     public List<Profile> getAllProfiles() {
         List<Profile> profiles = new ArrayList<>();
         try (BufferedReader br = new BufferedReader(new FileReader(FILE_PATH))) {
@@ -59,6 +66,7 @@ public class ProfileDAO {
         return profiles;
     }
 
+    /** Find a Profile by TA ID. */
     public Profile getByTaId(String taId) {
         for (Profile profile : getAllProfiles()) {
             if (profile.getTaId().equalsIgnoreCase(taId)) {
@@ -67,7 +75,7 @@ public class ProfileDAO {
         }
         return null;
     }
-
+    /** Save or update a Profile (replace if exists). */
     public void saveOrUpdate(Profile profile) {
         List<Profile> all = getAllProfiles();
         boolean updated = false;

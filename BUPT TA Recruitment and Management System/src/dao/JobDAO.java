@@ -1,7 +1,5 @@
 package dao;
 
-import model.Job;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -11,10 +9,15 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import model.Job;
 
+/**
+ * CSV-backed persistence for Job (operates on data/jobs.csv).
+ */
 public class JobDAO {
     private static final String FILE_PATH = "data/jobs.csv";
 
+    /** Constructor that ensures the data file exists. */
     public JobDAO() {
         ensureFile();
     }
@@ -31,6 +34,7 @@ public class JobDAO {
         }
     }
 
+    /** Save a job (append). */
     public void saveJob(Job job) {
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FILE_PATH, true))) {
             bw.write(job.toCsvLine());
@@ -40,6 +44,7 @@ public class JobDAO {
         }
     }
 
+    /** Read all jobs. */
     public List<Job> getAllJobs() {
         List<Job> jobs = new ArrayList<>();
         try (BufferedReader br = new BufferedReader(new FileReader(FILE_PATH))) {
@@ -57,6 +62,7 @@ public class JobDAO {
         return jobs;
     }
 
+    /** Get jobs posted by a given MO ID. */
     public List<Job> getJobsByMoId(String moId) {
         List<Job> result = new ArrayList<>();
         for (Job job : getAllJobs()) {
@@ -67,6 +73,7 @@ public class JobDAO {
         return result;
     }
 
+    /** Return currently non-expired jobs. */
     public List<Job> getOpenJobs() {
         List<Job> openJobs = new ArrayList<>();
         LocalDate today = LocalDate.now();
@@ -82,6 +89,7 @@ public class JobDAO {
         return openJobs;
     }
 
+    /** Find a job by its jobId. */
     public Job getByJobId(String jobId) {
         for (Job job : getAllJobs()) {
             if (job.getJobId().equalsIgnoreCase(jobId)) {

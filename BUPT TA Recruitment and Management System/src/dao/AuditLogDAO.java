@@ -1,7 +1,5 @@
 package dao;
 
-import model.AuditLog;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -10,7 +8,11 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import model.AuditLog;
 
+/**
+ * Audit log persistence utility operating on data/logs.csv.
+ */
 public class AuditLogDAO {
     private static final String FILE_PATH = "data/logs.csv";
 
@@ -30,6 +32,7 @@ public class AuditLogDAO {
         }
     }
 
+    /** Append an audit log entry. */
     public void append(AuditLog log) {
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FILE_PATH, true))) {
             bw.write(log.toCsvLine());
@@ -39,6 +42,7 @@ public class AuditLogDAO {
         }
     }
 
+    /** Read all audit logs. */
     public List<AuditLog> getAllLogs() {
         List<AuditLog> logs = new ArrayList<>();
         try (BufferedReader br = new BufferedReader(new FileReader(FILE_PATH))) {

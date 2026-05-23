@@ -1,16 +1,13 @@
-import model.*;
-import dao.*;
-
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
-
+import dao.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -30,7 +27,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import model.*;
 
+/**
+ * Provides a simple REST API based on the JDK HttpServer for frontend interaction.
+ * Includes endpoints for login, TA profiles, job management, applications, and admin APIs.
+ */
 public class WebServer {
     private static final int PORT = 8080;
     private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -45,9 +47,9 @@ public class WebServer {
     private static int jobSequence = 1;
     private static int appSequence = 1;
 
-    // 服务容器与路由
-    // 使用 JDK 内置 HttpServer 启动服务并集中注册接口，实现单进程运行。
-    // 实现位置：创建服务 WebServer.java:42，注册路由 WebServer.java:44。
+    // Server container and routes
+    // Starts a JDK HttpServer and registers endpoints for single-process operation.
+    // Implementation: server creation WebServer.java:42, route registration WebServer.java:44.
     public static void main(String[] args) throws IOException {
         initializeSequenceNumbers();
 
@@ -71,9 +73,9 @@ public class WebServer {
         System.out.println("Web UI started: http://localhost:" + PORT);
     }
 
-    // Handler 分治
-    // 每个业务域独立 Handler，登录、TA、MO、Admin 各自封装，避免“大控制器”。
-    // 示例：登录 WebServer.java:91，TA投递 WebServer.java:188，MO审核 WebServer.java:376，Admin指标 WebServer.java:426。
+    // Handler separation
+    // Each domain has its own handler (Login/TA/MO/Admin) to avoid a monolithic controller.
+    // Examples: login WebServer.java:91, TA apply WebServer.java:188, MO review WebServer.java:376, Admin metrics WebServer.java:426.
     static class StaticHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -130,9 +132,9 @@ public class WebServer {
     }
 
     static class TaProfileHandler implements HttpHandler {
-        // 业务约束后端兜底
-        // 关键规则全部在服务端判定，防止绕过前端造成脏数据。
-        // 示例：TA建档格式校验 WebServer.java:148，投递前置校验 WebServer.java:201，MO审核状态与权限校验 WebServer.java:390。
+        // Server-side validation
+        // All critical rules are enforced on the server to prevent client bypass.
+        // Examples: TA profile validation WebServer.java:148, apply pre-check WebServer.java:201, MO status/permission checks WebServer.java:390.
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             try {
@@ -579,9 +581,10 @@ public class WebServer {
         }
     }
 
-    // 序列号与重置机制
-    // 启动时重建 JOB/APP 序列避免 ID 冲突，提供 reset 接口便于演示快速复位。
-    // 实现位置：序列初始化 WebServer.java:530，重置接口 WebServer.java:506。
+    // Sequence numbers and reset mechanism
+    // Rebuild JOB/APP sequences at startup to avoid ID conflicts and provide a reset
+    // endpoint to quickly restore demo data.
+    // Implementation locations: sequence initialization WebServer.java:530, reset endpoint WebServer.java:506.
     static class ResetHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -748,9 +751,10 @@ public class WebServer {
         appSequence = maxApp + 1;
     }
 
-    // 持久化与可追踪
-    // 接口最终调用 DAO 写入 CSV，并同步写审计日志，形成可回放轨迹。
-    // 日志写入方法 WebServer.java:553，调用点如登录 WebServer.java:109、发岗 WebServer.java:301、审核 WebServer.java:421。
+    // Persistence and auditability
+    // Endpoints call DAOs to write CSV files and append audit logs,
+    // providing a replayable trace of actions.
+    // Log write method: WebServer.java:553; called on login WebServer.java:109, job post WebServer.java:301, review WebServer.java:421.
     private static void writeLog(String userId, String role, String action, String detail) {
         auditLogDAO.append(new AuditLog(
                 LocalDateTime.now().format(TS_FORMAT),
@@ -761,9 +765,9 @@ public class WebServer {
         ));
     }
 
-    // 请求解析统一
-    // 前端使用表单编码提交，后端统一通过 parseFormBody 和 parseQuery 解析，避免多套协议。
-    // 实现位置：WebServer.java:563 和 WebServer.java:572。
+    // Unified request parsing
+    // Frontend uses form-encoded submissions; backend parses them via parseFormBody and parseQuery
+    // to avoid multiple protocols. Implementations at WebServer.java:563 and WebServer.java:572.
     private static Map<String, String> parseFormBody(HttpExchange exchange) throws IOException {
         byte[] bytes;
         try (InputStream is = exchange.getRequestBody()) {
@@ -797,9 +801,9 @@ public class WebServer {
         }
     }
 
-    // 响应与错误统一
-    // 所有接口统一 JSON 返回，成功带 ok:true，失败统一 jsonError，前端可直接按 error 展示。
-    // 实现位置：WebServer.java:592 和 WebServer.java:613。
+    // Unified responses and error handling
+    // All endpoints return JSON: successful responses include ok:true; errors use jsonError.
+    // Implementations at WebServer.java:592 and WebServer.java:613.
     private static void sendJson(HttpExchange exchange, int status, String json) throws IOException {
         byte[] data = json.getBytes(StandardCharsets.UTF_8);
         Headers headers = exchange.getResponseHeaders();

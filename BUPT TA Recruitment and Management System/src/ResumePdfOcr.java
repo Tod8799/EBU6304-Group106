@@ -27,6 +27,13 @@ public final class ResumePdfOcr {
     private ResumePdfOcr() {
     }
 
+    /**
+     * Extract text from PDF bytes. Prefer embedded text; if absent, render the first
+     * pages as images and run Tesseract OCR.
+     * @param pdfBytes PDF file content bytes
+     * @return extracted plain text (may be empty)
+     * @throws IOException if OCR execution or file processing fails
+     */
     public static String extractText(byte[] pdfBytes) throws IOException {
         if (pdfBytes == null || pdfBytes.length == 0) {
             return "";

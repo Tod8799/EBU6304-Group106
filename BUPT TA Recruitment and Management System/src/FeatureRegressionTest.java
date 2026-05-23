@@ -21,6 +21,10 @@ import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+/**
+ * A simple regression test suite that performs quick assertions against several
+ * primary endpoints.
+ */
 public class FeatureRegressionTest {
     private static final String BASE_URL = "http://localhost:8080";
     private static final HttpClient HTTP = HttpClient.newHttpClient();

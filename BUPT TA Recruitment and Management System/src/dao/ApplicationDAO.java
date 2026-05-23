@@ -1,7 +1,5 @@
 package dao;
 
-import model.ApplicationRecord;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -10,7 +8,11 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import model.ApplicationRecord;
 
+/**
+ * Manages read/write operations for applications.csv, supports status updates and queries.
+ */
 public class ApplicationDAO {
     private static final String FILE_PATH = "data/applications.csv";
     private static final List<String> STATUSES = List.of("Pending", "Shortlisted", "Rejected", "Interview", "Hired");
@@ -31,6 +33,7 @@ public class ApplicationDAO {
         }
     }
 
+    /** Save an application record (append). */
     public void saveApplication(ApplicationRecord record) {
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FILE_PATH, true))) {
             bw.write(record.toCsvLine());
@@ -40,6 +43,7 @@ public class ApplicationDAO {
         }
     }
 
+    /** Read all application records; compatible with legacy formats. */
     public List<ApplicationRecord> getAllApplications() {
         List<ApplicationRecord> records = new ArrayList<>();
         try (BufferedReader br = new BufferedReader(new FileReader(FILE_PATH))) {
@@ -66,6 +70,7 @@ public class ApplicationDAO {
         return records;
     }
 
+    /** Get application records by TA ID. */
     public List<ApplicationRecord> getByTaId(String taId) {
         List<ApplicationRecord> result = new ArrayList<>();
         for (ApplicationRecord record : getAllApplications()) {
@@ -76,6 +81,7 @@ public class ApplicationDAO {
         return result;
     }
 
+    /** Get application records by jobId. */
     public List<ApplicationRecord> getByJobId(String jobId) {
         List<ApplicationRecord> result = new ArrayList<>();
         for (ApplicationRecord record : getAllApplications()) {
@@ -86,6 +92,7 @@ public class ApplicationDAO {
         return result;
     }
 
+    /** Find a single application by appId. */
     public ApplicationRecord getByAppId(String appId) {
         for (ApplicationRecord record : getAllApplications()) {
             if (record.getAppId().equalsIgnoreCase(appId)) {
@@ -95,6 +102,7 @@ public class ApplicationDAO {
         return null;
     }
 
+    /** Check whether a TA has already applied for a given job. */
     public boolean existsForTaAndJob(String taId, String jobId) {
         for (ApplicationRecord record : getAllApplications()) {
             if (record.getTaId().equalsIgnoreCase(taId) && record.getJobId().equalsIgnoreCase(jobId)) {
@@ -104,10 +112,12 @@ public class ApplicationDAO {
         return false;
     }
 
+    /** Update application status (optionally with rejection reason). */
     public boolean updateStatus(String appId, String newStatus) {
         return updateStatus(appId, newStatus, "");
     }
 
+    /** Update the status and persist changes to file. */
     public boolean updateStatus(String appId, String newStatus, String rejectReason) {
         List<ApplicationRecord> records = getAllApplications();
         boolean updated = false;

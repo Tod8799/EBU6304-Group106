@@ -1,14 +1,16 @@
-import model.*;
 import dao.*;
-
-import java.util.Scanner;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
+import model.*;
 
+/**
+ * Console-interactive main entry for the TA recruitment system, used for demos and debugging.
+ */
 public class Main {
     private static Scanner scanner = new Scanner(System.in);
     private static UserDAO userDAO = new UserDAO();
@@ -21,6 +23,9 @@ public class Main {
 
     private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    /**
+     * Program entry point; provides a simple console login and role-driven UI.
+     */
     public static void main(String[] args) {
         System.out.println("=========================================");
         System.out.println("  TA Recruitment System - Version 2.0    ");
