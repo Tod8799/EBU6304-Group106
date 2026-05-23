@@ -40,8 +40,17 @@ public class ProfileDAO {
                 if (data.length == 5) {
                     profiles.add(new Profile(data[0], data[1], data[2], data[3], data[4]));
                 } else if (data.length >= 6) {
-                    String resumeEncoded = String.join(",", java.util.Arrays.copyOfRange(data, 5, data.length));
-                    profiles.add(new Profile(data[0], data[1], data[2], data[3], data[4], Profile.decodeBase64(resumeEncoded)));
+                    String resumeEncoded = data[5];
+                    String resumeFileNameEncoded = data.length >= 7 ? data[6] : "";
+                    profiles.add(new Profile(
+                            data[0],
+                            data[1],
+                            data[2],
+                            data[3],
+                            data[4],
+                            Profile.decodeBase64(resumeEncoded),
+                            Profile.decodeBase64(resumeFileNameEncoded)
+                    ));
                 }
             }
         } catch (IOException e) {

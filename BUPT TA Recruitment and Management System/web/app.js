@@ -37,6 +37,13 @@ let selectedTaJob = null;
 let taResumeText = "";
 let taResumeFileName = "";
 let taResumeFileBase64 = "";
+let taResumeUploaded = false;
+
+function clearProfileForm() {
+  const form = document.getElementById("profileForm");
+  if (!form) return;
+  form.reset();
+}
 
 function switchTaTab(tabName) {
   Object.values(taSections).forEach((section) => section.classList.add("hidden"));
@@ -58,9 +65,11 @@ async function loadAndPopulateProfile() {
     const p = await api(`/api/ta/profile?taId=${encodeURIComponent(state.id)}`);
     if (!p.exists) {
       notice.classList.remove("hidden");
+      clearProfileForm();
       taResumeText = "";
       taResumeFileName = "";
       taResumeFileBase64 = "";
+      taResumeUploaded = false;
       refreshResumeUploadBtn();
     } else {
       notice.classList.add("hidden");
@@ -70,16 +79,15 @@ async function loadAndPopulateProfile() {
       form.elements["major"].value = p.profile.major || "";
       form.elements["phone"].value = p.profile.phone || "";
       taResumeText = p.profile.resumeText || "";
-      taResumeFileName = p.profile.resumeUploaded ? "resume_saved" : "";
+      taResumeFileName = p.profile.resumeFileName || (p.profile.resumeUploaded ? "resume_saved" : "");
       taResumeFileBase64 = "";
+      taResumeUploaded = Boolean(p.profile.resumeUploaded);
       refreshResumeUploadBtn();
     }
   } catch (_) {
     notice.classList.remove("hidden");
-    taResumeText = "";
-    taResumeFileName = "";
-    taResumeFileBase64 = "";
-    refreshResumeUploadBtn();
+    // Keep existing form state on transient load failures.
+    showMessage("Failed to refresh profile. Existing form content is kept.");
   }
 }
 
@@ -101,11 +109,10 @@ async function loadOpenJobs() {
     el.innerHTML = taOpenJobsCache.map((j) => `
       <div class="job-card">
         <div class="job-card-header">
-          <span class="job-title">${escHtml(j.title)}</span>
-          <span class="job-id-badge">${escHtml(j.jobId)}</span>
+          <span class="job-title">${escHtml(displayJobTitle(j))}</span>
         </div>
-        <div class="job-meta">Deadline: ${escHtml(j.deadline)} &nbsp;·&nbsp; Posted by: ${escHtml(j.moId)}</div>
-        <button class="btn-apply" data-view-job="${escHtml(j.jobId)}" aria-label="View requirements for ${escHtml(j.jobId)}">View Requirements</button>
+        <div class="job-meta">Deadline: ${escHtml(j.deadline)}</div>
+        <button class="btn-apply" data-view-job="${escHtml(j.jobId)}" aria-label="View requirements for ${escHtml(displayJobTitle(j))}">View Requirements</button>
       </div>`).join("");
   } catch (err) {
     showMessage(err.message);
@@ -120,9 +127,9 @@ function showTaRequirementView(job) {
   const contentEl = document.getElementById("taReqJobContent");
 
   selectedTaJob = job;
-  titleEl.textContent = `Job Requirements - ${job.title}`;
-  metaEl.textContent = `${job.jobId} | Deadline: ${job.deadline} | Posted by: ${job.moId}`;
-  contentEl.innerHTML = `<p>${escHtml(job.requirements || "None")}</p>`;
+  titleEl.textContent = `Job Requirements - ${displayJobTitle(job)}`;
+  metaEl.textContent = `Deadline: ${job.deadline}`;
+  contentEl.innerHTML = renderRequirements(job.requirements);
 
   listEl.classList.add("hidden");
   reqView.classList.remove("hidden");
@@ -157,9 +164,11 @@ async function loadMyApps() {
         <div class="app-card-header">
           <span class="status-badge status-${escHtml(a.status.toLowerCase())}">${escHtml(a.status)}</span>
         </div>
-        <div class="app-meta">Job: ${escHtml(a.jobTitle || a.jobId)}</div>
-        ${a.status === "Rejected" ? `<div class="app-meta">Rejection reason: ${escHtml(a.rejectReason || "No rejection reason provided")}</div>` : ""}
-        <div class="app-meta">Applied at: ${escHtml(a.appliedAt)}</div>
+        ${renderDetailGrid([
+          { label: "Position", value: a.jobTitle || "Recruitment position" },
+          { label: "Applied", value: a.appliedAt },
+          ...(a.status === "Rejected" ? [{ label: "Reason", value: a.rejectReason || "No rejection reason provided" }] : []),
+        ])}
       </div>`).join("");
   } catch (err) {
     showMessage(err.message);
@@ -175,15 +184,164 @@ function escHtml(str) {
     .replace(/'/g, "&#39;");
 }
 
+function displayRole(role) {
+  if (role === "TA") return "Teaching Assistant";
+  if (role === "MO") return "Module Organizer";
+  if (role === "Admin") return "Administrator";
+  return "User";
+}
+
+function displayJobTitle(job) {
+  return (job && job.title ? String(job.title).trim() : "") || "Untitled Position";
+}
+
+function displayJobLabel(job, index) {
+  return `Position ${index + 1} - ${displayJobTitle(job)}`;
+}
+
+function displayApplicantName(applicant, index = 0) {
+  const name = applicant && applicant.name ? String(applicant.name).trim() : "";
+  if (name && name !== "N/A") return name;
+  return `Applicant ${index + 1}`;
+}
+
+function isActiveTaskStatus(status) {
+  return ["shortlisted", "interview", "hired"].includes(String(status || "").toLowerCase());
+}
+
+function computeMoActiveTaskCounts() {
+  const counts = new Map();
+  moApplicantsByJob.forEach((applicants) => {
+    applicants.forEach((applicant) => {
+      if (!applicant.taId || !isActiveTaskStatus(applicant.status)) return;
+      counts.set(applicant.taId, (counts.get(applicant.taId) || 0) + 1);
+    });
+  });
+  return counts;
+}
+
+function resolvedActiveTaskCount(applicant, counts) {
+  const fromServer = Number(applicant && applicant.activeTaskCount);
+  const serverCount = Number.isFinite(fromServer) ? fromServer : 0;
+  const localCount = applicant && applicant.taId ? counts.get(applicant.taId) || 0 : 0;
+  return Math.max(serverCount, localCount);
+}
+
+function displayError(message) {
+  const text = String(message || "").trim();
+  if (!text) return "The request could not be completed. Please try again.";
+  if (/backend|webserver|server returned|server error|server fatal|exception|http\s*\d+|\/api|terminal|java/i.test(text)) {
+    return "The request could not be completed. Please try again later.";
+  }
+  return text;
+}
+
+function displayLogAction(action) {
+  const labels = {
+    LOGIN: "Signed in",
+    TA_PROFILE_SAVE: "Profile updated",
+    TA_APPLY: "Application submitted",
+    MO_POST_JOB: "Position posted",
+    MO_UPDATE_STATUS: "Application status updated",
+  };
+  return labels[action] || "System activity";
+}
+
+function parseRequirements(requirements) {
+  const raw = String(requirements || "").trim();
+  if (!raw) return [];
+  return raw.split(";")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const sep = item.indexOf(":");
+      if (sep < 0) {
+        return { label: "Requirement", value: item };
+      }
+      return {
+        label: item.slice(0, sep).trim() || "Requirement",
+        value: item.slice(sep + 1).trim() || "-",
+      };
+    });
+}
+
+function renderRequirements(requirements) {
+  const items = parseRequirements(requirements);
+  if (!items.length) {
+    return "<p class=\"empty-hint compact\">No requirements listed</p>";
+  }
+  return `
+    <div class="requirement-list">
+      ${items.map((item) => `
+        <div class="requirement-row">
+          <span class="requirement-label">${escHtml(item.label)}</span>
+          <span class="requirement-value">${escHtml(item.value)}</span>
+        </div>
+      `).join("")}
+    </div>`;
+}
+
+function renderDetailGrid(rows) {
+  return `
+    <div class="detail-grid">
+      ${rows.map((row) => `
+        <div class="detail-item">
+          <span class="detail-label">${escHtml(row.label)}</span>
+          <span class="detail-value">${escHtml(row.value || "-")}</span>
+        </div>
+      `).join("")}
+    </div>`;
+}
+
+function renderAdminMetrics(m) {
+  const statusEntries = Object.entries(m.statusDistribution || {});
+  return `
+    <div class="metric-grid">
+      <div class="metric-card"><span class="metric-value">${escHtml(m.totalJobs)}</span><span class="metric-label">Total jobs</span></div>
+      <div class="metric-card"><span class="metric-value">${escHtml(m.openJobs)}</span><span class="metric-label">Open jobs</span></div>
+      <div class="metric-card"><span class="metric-value">${escHtml(m.totalApplications)}</span><span class="metric-label">Applications</span></div>
+      <div class="metric-card"><span class="metric-value">${escHtml(m.completionRate)}%</span><span class="metric-label">Completion</span></div>
+    </div>
+    <div class="section-subhead">Status Distribution</div>
+    ${statusEntries.length
+      ? `<div class="distribution-list">${statusEntries.map(([status, count]) => `
+          <div class="distribution-row">
+            <span class="status-badge status-${escHtml(status.toLowerCase())}">${escHtml(status)}</span>
+            <strong>${escHtml(count)}</strong>
+          </div>
+        `).join("")}</div>`
+      : "<p class=\"empty-hint compact\">No applications yet</p>"}
+  `;
+}
+
+function renderLogs(logs) {
+  if (!logs.length) {
+    return "<p class=\"empty-hint compact\">No activity yet</p>";
+  }
+  return `
+    <div class="log-list">
+      ${logs.map((log) => `
+        <div class="log-item">
+          <div>
+            <div class="log-title">${escHtml(displayLogAction(log.action))}</div>
+            <div class="log-meta">${escHtml(displayRole(log.role))}</div>
+          </div>
+          <time class="log-time">${escHtml(log.timestamp)}</time>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function refreshResumeUploadBtn() {
   const btn = document.getElementById("uploadResumeBtn");
   const meta = document.getElementById("resumeMeta");
   if (!btn) return;
-  if (taResumeText) {
-    btn.textContent = `Replace Resume (.txt/.pdf/.docx, ${taResumeText.length} chars)`;
+  if (taResumeText || taResumeUploaded) {
+    btn.textContent = "Replace Resume (.txt/.pdf/.docx)";
     if (meta) {
-      const fileLabel = taResumeFileName || "saved_resume";
-      meta.textContent = `Resume: ${fileLabel} | Parsed length: ${taResumeText.length} chars`;
+      const fileLabel = taResumeFileName || "saved resume";
+      meta.textContent = `Resume attached: ${fileLabel}`;
     }
   } else {
     btn.textContent = "Upload Resume (.txt/.pdf/.docx)";
@@ -224,18 +382,29 @@ function switchMoTab(tabName) {
 
 function renderMoApplicantList() {
   const listEl = document.getElementById("applicants");
+  const activeTaskCounts = computeMoActiveTaskCounts();
   moApplicantIndex.clear();
   listEl.innerHTML = moJobsCache
-    .map((job) => {
-      const applicants = moApplicantsByJob.get(job.jobId) || [];
+    .map((job, jobIndex) => {
+      const applicants = [...(moApplicantsByJob.get(job.jobId) || [])].sort(
+        (left, right) => resolvedActiveTaskCount(left, activeTaskCounts) - resolvedActiveTaskCount(right, activeTaskCounts)
+      );
       const applicantsHtml = applicants.length
-        ? applicants.map((a) => {
-            moApplicantIndex.set(a.appId, { ...a, jobId: job.jobId, jobTitle: job.title });
+        ? applicants.map((a, applicantIndex) => {
+            const applicantName = displayApplicantName(a, applicantIndex);
+            const activeTaskCount = resolvedActiveTaskCount(a, activeTaskCounts);
+            moApplicantIndex.set(a.appId, {
+              ...a,
+              activeTaskCount,
+              displayName: applicantName,
+              jobId: job.jobId,
+              jobTitle: displayJobTitle(job),
+              jobLabel: displayJobLabel(job, jobIndex),
+            });
             return `
             <button class="applicant-item" type="button" data-app-id="${escHtml(a.appId)}">
-              <span class="applicant-item-name">${escHtml(a.name || "(Profile not completed)")}</span>
-              <span class="applicant-item-meta">${escHtml(a.taId)}</span>
-              <span class="applicant-item-meta">Active tasks: ${escHtml(a.activeTaskCount || 0)}</span>
+              <span class="applicant-item-name">${escHtml(applicantName)}</span>
+              <span class="applicant-item-meta">Active tasks: ${escHtml(activeTaskCount)}</span>
               <span class="status-badge status-${escHtml(a.status.toLowerCase())}">${escHtml(a.status)}</span>
             </button>
           `;
@@ -245,7 +414,7 @@ function renderMoApplicantList() {
       return `
         <details class="job-fold" id="job-fold-${escHtml(job.jobId)}">
           <summary>
-            <span class="job-fold-title">${escHtml(job.jobId)} - ${escHtml(job.title)}</span>
+            <span class="job-fold-title">${escHtml(displayJobLabel(job, jobIndex))}</span>
             <span class="job-fold-count">${applicants.length} applicants</span>
           </summary>
           <div class="job-fold-content">${applicantsHtml}</div>
@@ -277,30 +446,53 @@ async function loadMoReviewPanel() {
     }
 
     selectEl.innerHTML = jobs
-      .map((job) => `<option value="${escHtml(job.jobId)}">${escHtml(job.jobId)} - ${escHtml(job.title)}</option>`)
+      .map((job, index) => `<option value="${escHtml(job.jobId)}">${escHtml(displayJobLabel(job, index))}</option>`)
       .join("");
 
-    await Promise.all(
-      jobs.map(async (job) => {
-        try {
-          const resp = await api(`/api/mo/applicants?moId=${encodeURIComponent(state.id)}&jobId=${encodeURIComponent(job.jobId)}`);
-          moApplicantsByJob.set(job.jobId, resp.applicants || []);
-        } catch (_) {
-          moApplicantsByJob.set(job.jobId, []);
-        }
-      })
-    );
-
-    renderMoApplicantList();
+    await refreshAllJobApplicants(selectEl.value, null);
     showMessage("Application review list refreshed", true);
   } catch (err) {
     showMessage(err.message);
   }
 }
 
+async function refreshAllJobApplicants(focusJobId = "", focusAppId = null) {
+  const selectEl = document.getElementById("reviewJobSelect");
+  moApplicantsByJob.clear();
+  await Promise.all(
+    moJobsCache.map(async (job) => {
+      try {
+        const resp = await api(`/api/mo/applicants?moId=${encodeURIComponent(state.id)}&jobId=${encodeURIComponent(job.jobId)}`);
+        moApplicantsByJob.set(job.jobId, resp.applicants || []);
+      } catch (_) {
+        moApplicantsByJob.set(job.jobId, []);
+      }
+    })
+  );
+
+  renderMoApplicantList();
+
+  const jobIdToOpen = focusJobId || selectEl.value;
+  if (jobIdToOpen) {
+    selectEl.value = jobIdToOpen;
+    const fold = document.getElementById(`job-fold-${jobIdToOpen}`);
+    if (fold) fold.open = true;
+  }
+
+  if (focusAppId && moApplicantIndex.has(focusAppId)) {
+    selectedApplicant = moApplicantIndex.get(focusAppId);
+    document.querySelectorAll(".applicant-item").forEach((node) => {
+      node.classList.toggle("active", node.dataset.appId === focusAppId);
+    });
+  } else if (focusAppId) {
+    selectedApplicant = null;
+  }
+  renderSelectedApplicant();
+}
+
 async function refreshCurrentJobApplicants() {
   const selectEl = document.getElementById("reviewJobSelect");
-  const currentJobId = selectEl.value;
+  const currentJobId = selectedApplicant ? selectedApplicant.jobId : selectEl.value;
   if (!currentJobId) return;
   const prevAppId = selectedApplicant ? selectedApplicant.appId : null;
   try {
@@ -336,13 +528,15 @@ function renderSelectedApplicant() {
   }
 
   detailPanel.classList.remove("hidden");
-  metaEl.innerHTML = `
-    <div><strong>Job:</strong> ${escHtml(selectedApplicant.jobId)} - ${escHtml(selectedApplicant.jobTitle || "")}</div>
-    <div><strong>Applicant:</strong> ${escHtml(selectedApplicant.name || "(Profile not completed)")} (${escHtml(selectedApplicant.taId)})</div>
-    <div><strong>Student ID:</strong> ${escHtml(selectedApplicant.studentId || "-")} &nbsp; <strong>Major:</strong> ${escHtml(selectedApplicant.major || "-")}</div>
-    <div><strong>Phone:</strong> ${escHtml(selectedApplicant.phone || "-")} &nbsp; <strong>Status:</strong> ${escHtml(selectedApplicant.status)}</div>
-    <div><strong>Current active tasks:</strong> ${escHtml(selectedApplicant.activeTaskCount || 0)}</div>
-  `;
+  metaEl.innerHTML = renderDetailGrid([
+    { label: "Position", value: selectedApplicant.jobLabel || selectedApplicant.jobTitle || "Recruitment position" },
+    { label: "Applicant", value: selectedApplicant.displayName || displayApplicantName(selectedApplicant) },
+    { label: "Student ID", value: selectedApplicant.studentId || "-" },
+    { label: "Major", value: selectedApplicant.major || "-" },
+    { label: "Phone", value: selectedApplicant.phone || "-" },
+    { label: "Status", value: selectedApplicant.status },
+    { label: "Active tasks", value: selectedApplicant.activeTaskCount || 0 },
+  ]);
   resumeEl.textContent = selectedApplicant.resumeText || "No resume uploaded yet.";
 }
 
@@ -351,15 +545,19 @@ async function updateSelectedApplicantStatus(newStatus, rejectReason = "") {
     showMessage("Please select an applicant first");
     return;
   }
+  const focusJobId = selectedApplicant.jobId;
+  const focusAppId = selectedApplicant.appId;
   try {
-    await api("/api/mo/status", "POST", {
+    const result = await api("/api/mo/status", "POST", {
       moId: state.id,
-      appId: selectedApplicant.appId,
+      appId: focusAppId,
       status: newStatus,
       rejectReason,
     });
-    showMessage(`Status updated to ${newStatus}`, true);
-    await refreshCurrentJobApplicants();
+    const effectiveStatus = result.status || newStatus;
+    selectedApplicant.status = effectiveStatus;
+    await refreshAllJobApplicants(focusJobId, focusAppId);
+    showMessage(`Status updated to ${effectiveStatus}`, true);
   } catch (err) {
     showMessage(err.message);
   }
@@ -419,7 +617,7 @@ async function loadAdminHomeSummary() {
 
 function showMessage(text, ok = false) {
   toastEl.className = "toast " + (ok ? "toast-ok" : "toast-err");
-  toastEl.textContent = text;
+  toastEl.textContent = ok ? text : displayError(text);
   if (_toastTimer) clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => {
     toastEl.classList.add("toast-hide");
@@ -438,10 +636,20 @@ async function api(path, method = "GET", data = null) {
     opt.headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
     opt.body = toFormBody(data);
   }
-  const res = await fetch(path, opt);
-  const json = await res.json();
+  let res;
+  try {
+    res = await fetch(path, opt);
+  } catch (_) {
+    throw new Error("Service is unavailable. Please try again later.");
+  }
+  let json;
+  try {
+    json = await res.json();
+  } catch (_) {
+    throw new Error("Service response could not be read. Please try again.");
+  }
   if (!res.ok || !json.ok) {
-    throw new Error(json.error || "Request failed");
+    throw new Error(displayError(json.error || "Request failed"));
   }
   return json;
 }
@@ -459,7 +667,7 @@ function switchRoleView() {
     return;
   }
 
-  sessionInfo.textContent = `${state.id} (${state.role})`;
+  sessionInfo.textContent = `${displayRole(state.role)} signed in`;
   if (state.role === "TA") {
     taView.classList.remove("hidden");
     switchTaTab("home");
@@ -477,6 +685,12 @@ function switchRoleView() {
 function logout() {
   state.id = "";
   state.role = "";
+  clearProfileForm();
+  taResumeText = "";
+  taResumeFileName = "";
+  taResumeFileBase64 = "";
+  taResumeUploaded = false;
+  refreshResumeUploadBtn();
   switchRoleView();
   showMessage("Logged out", true);
 }
@@ -562,15 +776,18 @@ document.getElementById("uploadResumeBtn").addEventListener("click", () => {
       } else {
         taResumeText = `[${file.name}] uploaded, text will be extracted on save`;
       }
+      taResumeUploaded = true;
       refreshResumeUploadBtn();
       if (!taResumeText) {
+        taResumeUploaded = false;
+        refreshResumeUploadBtn();
         showMessage("Uploaded file is empty");
         return;
       }
       if (ext === "pdf" || ext === "docx") {
-        showMessage(`Resume loaded: ${taResumeFileName}. Click Save Profile to parse and store`, true);
+        showMessage(`Resume attached: ${taResumeFileName}. Click Save Profile to finish upload.`, true);
       } else {
-        showMessage(`Resume loaded: ${taResumeFileName}`, true);
+        showMessage(`Resume attached: ${taResumeFileName}`, true);
       }
     } catch (_) {
       showMessage("Failed to read resume file");
@@ -598,7 +815,7 @@ document.getElementById("taReqIgnoreBtn").addEventListener("click", () => {
     showMessage("Please select a job first");
     return;
   }
-  showMessage(`Ignored job: ${selectedTaJob.jobId}`, true);
+  showMessage("Position ignored", true);
   returnToTaJobList();
 });
 
@@ -634,13 +851,13 @@ document.getElementById("jobForm").addEventListener("submit", async (e) => {
   }
   const deadline = deadlineRaw.replace(/\//g, "-");
   try {
-    const json = await api("/api/mo/job", "POST", {
+    await api("/api/mo/job", "POST", {
       moId: state.id,
       title: fd.get("title"),
       requirements,
       deadline,
     });
-    showMessage(`Job posted: ${json.jobId}`, true);
+    showMessage("Position posted", true);
     e.target.reset();
     e.target.querySelectorAll(".req-item").forEach((item) => {
       item.open = false;
@@ -661,11 +878,10 @@ async function loadMyJobs() {
   el.innerHTML = json.jobs.map((j) => `
     <div class="job-card">
       <div class="job-card-header">
-        <span class="job-title">${escHtml(j.title)}</span>
-        <span class="job-id-badge">${escHtml(j.jobId)}</span>
+        <span class="job-title">${escHtml(displayJobTitle(j))}</span>
       </div>
       <div class="job-meta">Deadline: ${escHtml(j.deadline)}</div>
-      <div class="job-req">Requirements: ${escHtml(j.requirements)}</div>
+      ${renderRequirements(j.requirements)}
     </div>`).join("");
 }
 
@@ -716,16 +932,20 @@ document.getElementById("rejectApplicantBtn").addEventListener("click", async ()
     showMessage("Please select an applicant first");
     return;
   }
-  const reason = prompt("Enter rejection reason:", "");
-  if (reason === null) {
-    return;
-  }
-  const trimmed = reason.trim();
+  const rejectBtn = document.getElementById("rejectApplicantBtn");
+  const trimmed = document.getElementById("rejectReasonInput").value.trim();
   if (!trimmed) {
     showMessage("Rejection reason cannot be empty");
+    document.getElementById("rejectReasonInput").focus();
     return;
   }
-  await updateSelectedApplicantStatus("Rejected", trimmed);
+  rejectBtn.disabled = true;
+  try {
+    await updateSelectedApplicantStatus("Rejected", trimmed);
+    document.getElementById("rejectReasonInput").value = "";
+  } finally {
+    rejectBtn.disabled = false;
+  }
 });
 
 document.getElementById("backToApplicantsBtn").addEventListener("click", () => {
@@ -740,10 +960,7 @@ document.getElementById("loadMetricsBtn").addEventListener("click", async () => 
   const el = document.getElementById("metrics");
   try {
     const m = await api("/api/admin/metrics");
-    const dist = Object.keys(m.statusDistribution || {}).length
-      ? Object.entries(m.statusDistribution).map(([k, v]) => `${k}: ${v}`).join("\n")
-      : "(empty)";
-    el.textContent = `Total Jobs: ${m.totalJobs}\nOpen Jobs: ${m.openJobs}\nTotal Applications: ${m.totalApplications}\nCompletion: ${m.completionRate}%\n\nStatus Distribution\n${dist}`;
+    el.innerHTML = renderAdminMetrics(m);
     showMessage("Metrics refreshed", true);
   } catch (err) {
     showMessage(err.message);
@@ -754,13 +971,7 @@ document.getElementById("loadLogsBtn").addEventListener("click", async () => {
   const el = document.getElementById("logs");
   try {
     const json = await api("/api/admin/logs");
-    if (!json.logs.length) {
-      el.textContent = "No logs";
-      return;
-    }
-    el.textContent = json.logs
-      .map((l) => `${l.timestamp} | ${l.userId} | ${l.role} | ${l.action} | ${l.detail}`)
-      .join("\n");
+    el.innerHTML = renderLogs(json.logs || []);
     showMessage("Logs refreshed", true);
   } catch (err) {
     showMessage(err.message);

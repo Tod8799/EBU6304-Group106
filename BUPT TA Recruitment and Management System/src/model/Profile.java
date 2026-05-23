@@ -10,18 +10,24 @@ public class Profile {
     private String major;
     private String phone;
     private String resumeText;
+    private String resumeFileName;
 
     public Profile(String taId, String name, String studentId, String major, String phone) {
-        this(taId, name, studentId, major, phone, "");
+        this(taId, name, studentId, major, phone, "", "");
     }
 
     public Profile(String taId, String name, String studentId, String major, String phone, String resumeText) {
+        this(taId, name, studentId, major, phone, resumeText, "");
+    }
+
+    public Profile(String taId, String name, String studentId, String major, String phone, String resumeText, String resumeFileName) {
         this.taId = taId;
         this.name = name;
         this.studentId = studentId;
         this.major = major;
         this.phone = phone;
         this.resumeText = resumeText == null ? "" : resumeText;
+        this.resumeFileName = resumeFileName == null ? "" : resumeFileName;
     }
 
     public String getTaId() { return taId; }
@@ -30,9 +36,11 @@ public class Profile {
     public String getMajor() { return major; }
     public String getPhone() { return phone; }
     public String getResumeText() { return resumeText; }
+    public String getResumeFileName() { return resumeFileName; }
 
     public String toCsvLine() {
-        return taId + "," + name + "," + studentId + "," + major + "," + phone + "," + encodeBase64(resumeText);
+        return taId + "," + name + "," + studentId + "," + major + "," + phone + ","
+                + encodeBase64(resumeText) + "," + encodeBase64(resumeFileName);
     }
 
     private String encodeBase64(String text) {
