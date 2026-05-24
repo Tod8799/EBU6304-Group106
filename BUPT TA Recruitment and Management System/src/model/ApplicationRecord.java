@@ -38,7 +38,8 @@ public class ApplicationRecord {
      * @param appliedAt    timestamp when applied
      * @param rejectReason why the application was rejected (may be empty)
      */
-    public ApplicationRecord(String appId, String jobId, String taId, String status, String appliedAt, String rejectReason) {
+    public ApplicationRecord(String appId, String jobId, String taId, String status,
+                             String appliedAt, String rejectReason) {
         this.appId = appId;
         this.jobId = jobId;
         this.taId = taId;
@@ -49,19 +50,14 @@ public class ApplicationRecord {
 
     /** @return the application ID */
     public String getAppId() { return appId; }
-
     /** @return the job ID */
     public String getJobId() { return jobId; }
-
     /** @return the TA ID */
     public String getTaId() { return taId; }
-
     /** @return the current status */
     public String getStatus() { return status; }
-
     /** @return the submission timestamp */
     public String getAppliedAt() { return appliedAt; }
-
     /** @return the rejection reason (empty if not rejected) */
     public String getRejectReason() { return rejectReason; }
 
@@ -73,9 +69,7 @@ public class ApplicationRecord {
 
     /**
      * Formats this application as a CSV line.
-     * <p>
      * Replaces commas and newlines in the reject reason so the line remains valid.
-     * </p>
      *
      * @return CSV line: appId,jobId,taId,status,appliedAt,rejectReason
      */

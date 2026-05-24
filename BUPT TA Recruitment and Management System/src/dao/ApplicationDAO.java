@@ -44,7 +44,6 @@ public class ApplicationDAO {
 
     /**
      * Appends a new application record to the CSV file.
-     *
      * @param record the application to save
      */
     public void saveApplication(ApplicationRecord record) {
@@ -58,9 +57,7 @@ public class ApplicationDAO {
 
     /**
      * Reads all application records from the CSV file.
-     * <p>
-     * Supports both the old format (6 fields with a legacy path) and the new format.
-     * </p>
+     * Supports both the old and new format.
      *
      * @return list of all applications
      */
@@ -78,7 +75,7 @@ public class ApplicationDAO {
                         String reason = String.join(",", Arrays.copyOfRange(data, 5, data.length));
                         records.add(new ApplicationRecord(data[0], data[1], data[2], data[3], data[4], reason));
                     } else {
-                        // Legacy format: skip index 3 (old cvPath)
+                        // Legacy format
                         records.add(new ApplicationRecord(data[0], data[1], data[2], data[4], data[5], ""));
                     }
                 }
@@ -91,71 +88,59 @@ public class ApplicationDAO {
 
     /**
      * Returns all applications submitted by a specific TA.
-     *
      * @param taId the TA's user ID
      * @return list of applications belonging to that TA
      */
     public List<ApplicationRecord> getByTaId(String taId) {
         List<ApplicationRecord> result = new ArrayList<>();
         for (ApplicationRecord record : getAllApplications()) {
-            if (record.getTaId().equalsIgnoreCase(taId)) {
-                result.add(record);
-            }
+            if (record.getTaId().equalsIgnoreCase(taId)) result.add(record);
         }
         return result;
     }
 
     /**
      * Returns all applications for a specific job.
-     *
      * @param jobId the job ID
      * @return list of applications for that job
      */
     public List<ApplicationRecord> getByJobId(String jobId) {
         List<ApplicationRecord> result = new ArrayList<>();
         for (ApplicationRecord record : getAllApplications()) {
-            if (record.getJobId().equalsIgnoreCase(jobId)) {
-                result.add(record);
-            }
+            if (record.getJobId().equalsIgnoreCase(jobId)) result.add(record);
         }
         return result;
     }
 
     /**
      * Finds an application by its unique ID.
-     *
      * @param appId the application ID
      * @return the application record or {@code null}
      */
     public ApplicationRecord getByAppId(String appId) {
         for (ApplicationRecord record : getAllApplications()) {
-            if (record.getAppId().equalsIgnoreCase(appId)) {
-                return record;
-            }
+            if (record.getAppId().equalsIgnoreCase(appId)) return record;
         }
         return null;
     }
 
     /**
      * Checks if a TA has already applied for a given job.
-     *
-     * @param taId  the TA ID
+     * @param taId the TA ID
      * @param jobId the job ID
      * @return true if a duplicate exists
      */
     public boolean existsForTaAndJob(String taId, String jobId) {
         for (ApplicationRecord record : getAllApplications()) {
-            if (record.getTaId().equalsIgnoreCase(taId) && record.getJobId().equalsIgnoreCase(jobId)) {
+            if (record.getTaId().equalsIgnoreCase(taId) && record.getJobId().equalsIgnoreCase(jobId))
                 return true;
-            }
         }
         return false;
     }
 
     /**
      * Updates the status of an application without a reject reason.
-     *
-     * @param appId     the application ID
+     * @param appId the application ID
      * @param newStatus the new status (e.g., "Shortlisted")
      * @return true if the update succeeded
      */
@@ -165,9 +150,8 @@ public class ApplicationDAO {
 
     /**
      * Updates the status of an application and optionally sets a rejection reason.
-     *
-     * @param appId        the application ID
-     * @param newStatus    the new status
+     * @param appId the application ID
+     * @param newStatus the new status
      * @param rejectReason required when status is "Rejected"
      * @return true if the update succeeded
      */
@@ -208,9 +192,7 @@ public class ApplicationDAO {
 
     private boolean isKnownStatus(String value) {
         for (String status : STATUSES) {
-            if (status.equalsIgnoreCase(value)) {
-                return true;
-            }
+            if (status.equalsIgnoreCase(value)) return true;
         }
         return false;
     }

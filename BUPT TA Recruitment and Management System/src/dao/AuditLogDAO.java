@@ -28,9 +28,6 @@ public class AuditLogDAO {
         ensureFile();
     }
 
-    /**
-     * Creates the log file (and parent directory) if they are missing.
-     */
     private void ensureFile() {
         File file = new File(FILE_PATH);
         if (!file.exists()) {
@@ -45,7 +42,6 @@ public class AuditLogDAO {
 
     /**
      * Appends a new log entry to the end of the CSV file.
-     *
      * @param log the audit log to write
      */
     public void append(AuditLog log) {
@@ -59,7 +55,6 @@ public class AuditLogDAO {
 
     /**
      * Reads all log entries from the CSV file.
-     *
      * @return a list of audit logs, in the order they were written
      */
     public List<AuditLog> getAllLogs() {

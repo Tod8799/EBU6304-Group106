@@ -3,7 +3,8 @@ package model;
 /**
  * Represents a job posting created by a Module Organiser (MO).
  * <p>
- * Each job has a unique ID, a title, requirements, a deadline, and a creation timestamp.
+ * Each job has a unique ID, a title, requirements, a deadline,
+ * and a creation timestamp.
  * </p>
  */
 public class Job {
@@ -35,25 +36,19 @@ public class Job {
 
     /** @return the job ID */
     public String getJobId() { return jobId; }
-
     /** @return the MO ID */
     public String getMoId() { return moId; }
-
     /** @return the job title */
     public String getTitle() { return title; }
-
     /** @return the requirements text */
     public String getRequirements() { return requirements; }
-
     /** @return the deadline string */
     public String getDeadline() { return deadline; }
-
     /** @return the creation timestamp */
     public String getCreatedAt() { return createdAt; }
 
     /**
      * Formats this job as a CSV line.
-     *
      * @return comma-separated line: jobId,moId,title,requirements,deadline,createdAt
      */
     public String toCsvLine() {

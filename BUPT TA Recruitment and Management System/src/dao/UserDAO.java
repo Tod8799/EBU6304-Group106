@@ -10,7 +10,7 @@ import java.util.List;
  * Data access object for user accounts stored in {@code data/users.csv}.
  * <p>
  * On first access, the file is created with three default accounts (Admin, MO, TA).
- * Provides methods to save, read, authenticate, and look up users.
+ * Provides methods to save, read, authenticate, look up users, and check email existence.
  * </p>
  */
 public class UserDAO {
@@ -37,7 +37,6 @@ public class UserDAO {
 
     /**
      * Appends a new user to the CSV file.
-     *
      * @param user the user to save
      */
     public void saveUser(User user) {
@@ -51,7 +50,6 @@ public class UserDAO {
 
     /**
      * Reads all users from the CSV file.
-     *
      * @return a list of all users
      */
     public List<User> getAllUsers() {
@@ -89,7 +87,6 @@ public class UserDAO {
 
     /**
      * Finds a user by their unique ID.
-     *
      * @param id user ID (e.g., "T001")
      * @return the user or {@code null} if not found
      */
@@ -100,5 +97,19 @@ public class UserDAO {
             }
         }
         return null;
+    }
+
+    /**
+     * Checks whether an email is already registered.
+     * @param email the email to test
+     * @return {@code true} if the email already exists
+     */
+    public boolean emailExists(String email) {
+        for (User user : getAllUsers()) {
+            if (user.getEmail().equalsIgnoreCase(email)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -15,8 +15,8 @@ import java.util.List;
 /**
  * Data access object for job postings stored in {@code data/jobs.csv}.
  * <p>
- * Provides methods to save a job, get all jobs, filter by MO, get open (non-expired) jobs,
- * and find a job by ID.
+ * Provides methods to save a job, get all jobs, filter by MO,
+ * get open (non-expired) jobs, and find a job by ID.
  * </p>
  */
 public class JobDAO {
@@ -43,7 +43,6 @@ public class JobDAO {
 
     /**
      * Appends a new job to the CSV file.
-     *
      * @param job the job to save
      */
     public void saveJob(Job job) {
@@ -57,7 +56,6 @@ public class JobDAO {
 
     /**
      * Reads all jobs from the CSV file.
-     *
      * @return list of all jobs
      */
     public List<Job> getAllJobs() {
@@ -79,7 +77,6 @@ public class JobDAO {
 
     /**
      * Returns all jobs posted by a specific Module Organiser.
-     *
      * @param moId the MO's user ID
      * @return list of jobs belonging to that MO
      */
@@ -95,7 +92,6 @@ public class JobDAO {
 
     /**
      * Returns all jobs whose deadline is today or in the future.
-     *
      * @return list of open jobs
      */
     public List<Job> getOpenJobs() {
@@ -115,7 +111,6 @@ public class JobDAO {
 
     /**
      * Finds a job by its unique ID.
-     *
      * @param jobId the job ID
      * @return the job or {@code null} if not found
      */

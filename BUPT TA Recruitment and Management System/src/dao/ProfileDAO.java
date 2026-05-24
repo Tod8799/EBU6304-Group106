@@ -14,7 +14,8 @@ import java.util.List;
 /**
  * Data access object for TA profiles stored in {@code data/profiles.csv}.
  * <p>
- * Provides methods to read all profiles, find a profile by TA ID, and save or update a profile.
+ * Provides methods to read all profiles, find a profile by TA ID,
+ * and save or update a profile.
  * </p>
  */
 public class ProfileDAO {
@@ -41,7 +42,6 @@ public class ProfileDAO {
 
     /**
      * Returns all profiles stored in the CSV file.
-     *
      * @return list of all TA profiles
      */
     public List<Profile> getAllProfiles() {
@@ -54,17 +54,10 @@ public class ProfileDAO {
                 if (data.length == 5) {
                     profiles.add(new Profile(data[0], data[1], data[2], data[3], data[4]));
                 } else if (data.length >= 6) {
-                    String resumeEncoded = data[5];
+                    String resumePath = data[5];
                     String resumeFileNameEncoded = data.length >= 7 ? data[6] : "";
-                    profiles.add(new Profile(
-                            data[0],
-                            data[1],
-                            data[2],
-                            data[3],
-                            data[4],
-                            Profile.decodeBase64(resumeEncoded),
-                            Profile.decodeBase64(resumeFileNameEncoded)
-                    ));
+                    profiles.add(new Profile(data[0], data[1], data[2], data[3], data[4],
+                            resumePath, Profile.decodeBase64(resumeFileNameEncoded)));
                 }
             }
         } catch (IOException e) {
@@ -75,7 +68,6 @@ public class ProfileDAO {
 
     /**
      * Finds a TA's profile by their user ID.
-     *
      * @param taId the TA ID (e.g., "T001")
      * @return the profile or {@code null} if none exists
      */
@@ -90,7 +82,6 @@ public class ProfileDAO {
 
     /**
      * Saves a new profile or updates an existing one for the same TA.
-     *
      * @param profile the profile to save or update
      */
     public void saveOrUpdate(Profile profile) {

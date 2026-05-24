@@ -12,9 +12,9 @@ import java.util.Map;
 /**
  * Console-based entry point for the TA Recruitment System.
  * <p>
- * This class provides a text-menu interface that allows users to log in,
+ * Provides a text-menu interface that allows users to log in,
  * and then access role-specific functions (TA, MO, Admin).
- * It uses the same CSV data layer as the web server.
+ * Uses the same CSV data layer as the web server.
  * </p>
  */
 public class Main {
@@ -93,7 +93,7 @@ public class Main {
     }
 
     /**
-     * Displays the TA menu and handles the user's choice.
+     * Displays the TA menu and handles user input.
      *
      * @param user the logged-in TA
      */
@@ -128,7 +128,7 @@ public class Main {
     }
 
     /**
-     * Displays the MO menu and handles the user's choice.
+     * Displays the MO menu and handles user input.
      *
      * @param user the logged-in MO
      */
@@ -160,7 +160,7 @@ public class Main {
     }
 
     /**
-     * Displays the Admin menu and handles the user's choice.
+     * Displays the Admin menu and handles user input.
      *
      * @param user the logged-in Admin
      */
@@ -187,7 +187,7 @@ public class Main {
 
     /**
      * Prompts the TA to enter profile details and saves them.
-     * Validates that student ID has exactly 8 digits and phone has exactly 11 digits.
+     * Validates student ID (8 digits) and phone (11 digits).
      *
      * @param user the logged-in TA
      */
@@ -258,12 +258,12 @@ public class Main {
     }
 
     /**
-     * Lets a TA apply for a job after verifying that:
+     * Lets a TA apply for a job after validating that:
      * <ul>
      *   <li>the profile exists,</li>
      *   <li>the job is valid,</li>
      *   <li>the deadline has not passed,</li>
-     *   <li>a duplicate application does not exist.</li>
+     *   <li>a duplicate does not already exist.</li>
      * </ul>
      *
      * @param user the logged-in TA
@@ -339,7 +339,7 @@ public class Main {
 
     /**
      * Allows an MO to post a new job.
-     * Validates that the deadline is a real date and is in the future.
+     * Validates that the deadline is a real future date.
      *
      * @param user the logged-in MO
      */
@@ -425,7 +425,7 @@ public class Main {
     }
 
     /**
-     * Allows an MO to change the status of an application (e.g., Shortlisted, Rejected).
+     * Allows an MO to change the status of an application.
      * Only applications belonging to jobs owned by this MO can be updated.
      *
      * @param user the logged-in MO
@@ -462,10 +462,10 @@ public class Main {
     }
 
     /**
-     * Checks whether a given status string is a valid application status.
+     * Checks whether a string is a valid application status.
      *
-     * @param status the status to check
-     * @return {@code true} if the status is valid, {@code false} otherwise
+     * @param status the status to test
+     * @return true if valid
      */
     private static boolean isValidStatus(String status) {
         return "Pending".equalsIgnoreCase(status)
@@ -476,8 +476,7 @@ public class Main {
     }
 
     /**
-     * Displays system-wide recruitment metrics:
-     * total jobs, open jobs, total applications, completion rate, and status distribution.
+     * Displays system-wide recruitment metrics for Admin.
      */
     private static void showMetrics() {
         List<Job> jobs = jobDAO.getAllJobs();
@@ -560,8 +559,7 @@ public class Main {
 
     /**
      * Reads existing job and application IDs from CSV files
-     * to set the correct next sequence numbers. This prevents ID collisions
-     * when the system is restarted.
+     * to set the correct next sequence numbers.
      */
     private static void initializeSequenceNumbers() {
         int maxJob = 0;

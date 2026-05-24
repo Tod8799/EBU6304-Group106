@@ -7,10 +7,9 @@
 |Nyog39  | Yankai Wang | 231223737| 
 |Duck0114  | JianCheng Dong | 231223357 |
 
-
 # TA Recruitment System
 
-A lightweight role-based Teaching Assistant recruitment web application for the EBU6304 Software Engineering group project. Built with Java's built-in `HttpServer`, static HTML/CSS/JavaScript frontend, and CSV file persistence. **No Spring Boot, no external database.**
+A lightweight role‑based Teaching Assistant recruitment web application for the EBU6304 Software Engineering group project. Built with Java's built‑in `HttpServer`, static HTML/CSS/JavaScript frontend, and CSV file persistence. **No Spring Boot, no external database.**
 
 ---
 
@@ -25,6 +24,7 @@ A lightweight role-based Teaching Assistant recruitment web application for the 
 - [Application Status Lifecycle](#application-status-lifecycle)
 - [Data Persistence](#data-persistence)
 - [Troubleshooting](#troubleshooting)
+- [Documentation](#documentation)
 - [Contributors](#contributors)
 
 ---
@@ -32,20 +32,22 @@ A lightweight role-based Teaching Assistant recruitment web application for the 
 ## Features
 
 ### Admin
-- System-wide recruitment metrics (total users, jobs, applications, status breakdown)
+- System‑wide recruitment metrics (total jobs, open jobs, applications, completion rate)
+- Detailed per‑TA workload overview (active tasks, status breakdown)
 - Full audit log with timestamp, user ID, role, action, and detail
-- Reset all system data (testing only)
+- Reset all system data for testing
 
 ### Module Organiser (MO)
-- Post job openings with title, requirements, and deadline
-- View all self-posted jobs and applicants per job
-- View applicant profiles and uploaded CVs (PDF, DOCX, TXT) – PDFs use embedded text extraction with OCR fallback
-- Update application status through the full lifecycle: Shortlist, Interview, Hire, or Reject (with reason)
+- Post job openings with title, requirements, and deadline (strict validation)
+- View all self‑posted jobs and applicants per job, sorted by workload
+- View applicant profiles and download resume PDFs
+- Update application status through the full lifecycle: Shortlist → Interview → Hired; reject with mandatory reason
 
 ### TA / Applicant
+- Self‑registration with email and password
 - Create/update personal profile (name, student ID, major, phone)
-- Upload CV in PDF, DOCX, or TXT format (max 5 MB)
-- Browse open job postings and apply
+- Upload CV in **PDF format only** (max 5 MB)
+- Browse open job postings and apply (duplicate and expiry checks)
 - Track application statuses in real time
 
 ---
@@ -53,43 +55,56 @@ A lightweight role-based Teaching Assistant recruitment web application for the 
 ## Project Structure
 ```
 ta-recruitment-system/
-├── data/                  # CSV files (auto-created on first run)
+├── data/
 │   ├── users.csv
 │   ├── profiles.csv
 │   ├── jobs.csv
 │   ├── applications.csv
-│   └── logs.csv
+│   ├── logs.csv
+│   └── resumes/               # uploaded PDF resumes
+├── docs/                      # Javadoc documentation
 ├── src/
-│   ├── WebServer.java     # Web entry point
-│   ├── Main.java          # Console entry point
-│   ├── model/             # Domain classes
-│   └── dao/               # Data access layer
-├── web/                   # Frontend (static)
+│   ├── Main.java              # Console entry point
+│   ├── WebServer.java         # Web server entry point
+│   ├── FeatureRegressionTest.java   # Automated test suite
+│   ├── E2EBusinessLogicTest.java    # End‑to‑end business flow test
+│   ├── model/                 # Domain classes
+│   │   ├── User.java
+│   │   ├── Profile.java
+│   │   ├── Job.java
+│   │   ├── ApplicationRecord.java
+│   │   └── AuditLog.java
+│   └── dao/                   # Data access layer
+│       ├── UserDAO.java
+│       ├── ProfileDAO.java
+│       ├── JobDAO.java
+│       ├── ApplicationDAO.java
+│       └── AuditLogDAO.java
+├── web/
 │   ├── index.html
 │   ├── app.js
 │   ├── styles.css
 │   └── favicon.ico
-├── scripts/               # OCR setup helper
-│   └── setup-portable-ocr.ps1
-└── run.ps1                # One-click start script (Windows PowerShell)
+├── run.ps1                    # One‑click start script (Windows)
+└── README.md
 ```
 
 ---
 
 ## Prerequisites
-- **JDK 11 or higher** (JDK 17+ recommended; JDK 21/23 also work)
+- **JDK 11 or higher** (JDK 17+ recommended)
 - A modern browser (Chrome, Edge, Firefox)
-- **Internet access on first run** – required only to download OCR dependencies for PDF processing
+- **No external libraries required** – PDF parsing is built into the application.
 
 ---
 
 ## Quick Start
 
-### 1. Compile (all platforms)
+### 1. Compile
 From the project root:
+
 ```bash
-mkdir -p out
-javac -encoding UTF-8 -d out src/model/*.java src/dao/*.java src/*.java
+javac -encoding UTF-8 -d out src/model/*.java src/dao/*.java src/Main.java src/WebServer.java src/FeatureRegressionTest.java src/E2EBusinessLogicTest.java
 ```
 
 ### 2. Run Web Server
@@ -98,7 +113,7 @@ java -cp out WebServer
 ```
 Then open **http://localhost:8080** in your browser.
 
-**Windows users** can alternatively use the provided PowerShell script (handles OCR setup + compilation + launch):
+**Windows users** can use the provided PowerShell script:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\run.ps1
 ```
@@ -107,79 +122,91 @@ powershell -ExecutionPolicy Bypass -File .\run.ps1
 ```bash
 java -cp out Main
 ```
-*Note: The console interface follows the same business logic but has a text-based menu.*
+Provides a text‑based interface with the same business logic.
+
+### 4. Run Tests
+After starting the server (in another terminal), execute:
+```bash
+java -cp out FeatureRegressionTest
+java -cp out E2EBusinessLogicTest
+```
 
 ---
 
 ## Demo Accounts
-| Role  | Email              | Password  |
-|-------|--------------------|-----------|
-| Admin | admin@bupt.edu     | admin123  |
-| MO    | mo@bupt.edu        | mo123     |
-| TA    | ta@bupt.edu        | ta123     |
+| Role  | Email              | Password |
+|-------|--------------------|----------|
+| Admin | admin@bupt.edu     | admin123 |
+| MO    | mo@bupt.edu        | mo123    |
+| TA    | ta@bupt.edu        | ta1234   |
 
-These accounts are hardcoded in `data/users.csv` and are for **demonstration only**. Passwords are stored in plain text (not intended for production).
+These accounts are seeded in `data/users.csv`. Passwords are stored in plain text for demonstration only.
+New TA accounts can be created via the registration page.
 
 ---
 
 ## API Endpoints
-| Method | Endpoint             | Description                     | Role  |
-|--------|----------------------|---------------------------------|-------|
-| POST   | `/api/login`         | User login                      | All   |
-| GET    | `/api/ta/profile`    | Get TA profile                  | TA    |
-| POST   | `/api/ta/profile`    | Create or update TA profile     | TA    |
-| POST   | `/api/ta/resume`     | Upload CV/resume (multipart)     | TA    |
-| GET    | `/api/ta/jobs-open`  | Get all open job listings       | TA    |
-| POST   | `/api/ta/apply`      | Submit a job application        | TA    |
-| GET    | `/api/ta/applications` | Get own application statuses | TA    |
-| POST   | `/api/mo/job`        | Post a new job                  | MO    |
-| GET    | `/api/mo/jobs`       | Get MO's posted jobs            | MO    |
-| GET    | `/api/mo/applicants` | Get applicants for a job        | MO    |
-| POST   | `/api/mo/status`     | Update application status       | MO    |
-| GET    | `/api/admin/metrics` | Get recruitment metrics         | Admin |
-| GET    | `/api/admin/logs`    | Get audit logs                  | Admin |
-| POST   | `/api/reset`         | Reset all data (testing)        | Admin |
+| Method | Endpoint              | Description                             | Role  |
+|--------|------------------------|-----------------------------------------|-------|
+| POST   | `/api/login`          | User login                              | All   |
+| POST   | `/api/register`       | Register a new TA account               | All   |
+| GET    | `/api/ta/profile`     | Get TA profile                          | TA    |
+| POST   | `/api/ta/profile`     | Create/update profile and upload resume | TA    |
+| GET    | `/api/ta/jobs-open`   | Get open job listings                   | TA    |
+| POST   | `/api/ta/apply`       | Submit a job application                | TA    |
+| GET    | `/api/ta/applications`| Get own application statuses            | TA    |
+| POST   | `/api/mo/job`         | Post a new job                          | MO    |
+| GET    | `/api/mo/jobs`        | Get MO's posted jobs                    | MO    |
+| GET    | `/api/mo/applicants`  | Get applicants for a job (sorted)       | MO    |
+| POST   | `/api/mo/status`      | Update application status               | MO    |
+| GET    | `/api/mo/resume`      | View applicant's resume PDF             | MO    |
+| GET    | `/api/admin/metrics`  | Get global recruitment metrics          | Admin |
+| GET    | `/api/admin/workloads`| Get per‑TA workload statistics          | Admin |
+| GET    | `/api/admin/logs`     | Get system audit logs                   | Admin |
+| POST   | `/api/reset`          | Reset all data (testing only)           | Admin |
 
 ---
 
 ## Usage Guide
 
 ### TA Workflow
-1. Login with TA credentials.
-2. Go to **My Profile** → fill in required fields → upload CV (PDF/DOCX/TXT).
-3. Browse open jobs under **Job Applications** and **Apply**.
+1. Login with existing credentials or **register** a new TA account.
+2. Go to **My Profile** → fill in personal details → upload CV (PDF only).
+3. Browse open jobs under **Job Applications** and click **Apply**.
 4. Track application status in **My Applications**.
 
 ### MO Workflow
 1. Login with MO credentials.
 2. **Post a Job** with title, requirements, and a valid future deadline.
 3. View your jobs in **My Jobs** → click **View Applicants**.
-4. Review applicant profile and CV → update status (Shortlist / Interview / Hire / Reject).
+4. Review applicant profiles, download PDF resumes, and update status.
 
 ### Admin Workflow
 1. Login with Admin credentials.
-2. Open **Global Metrics** to see system-wide statistics.
-3. Open **Operation Logs** to inspect all recorded actions.
+2. Open **Global Metrics** for system‑wide statistics.
+3. Open **Workloads** to see each TA's active tasks and status breakdown.
+4. Open **Operation Logs** to inspect all recorded actions.
 
 ---
 
 ## Application Status Lifecycle
 ```
           Pending
-             |
+             │
         Shortlisted
-             |
+             │
          Interview
-             |
+             │
           Hired
 ```
-At any stage, an application may be **Rejected** (with a required reason).
+At any stage → **Rejected** (with mandatory reason).
 
 ---
 
 ## Data Persistence
-All data is stored in plain CSV files under `data/`. The directory and initial files are created automatically.
-Resumes are Base64-encoded and saved directly in `profiles.csv`; no external upload folder is used.
+All data is stored in **plain CSV files** under `data/`.
+Uploaded **PDF resumes** are saved to `data/resumes/` and referenced by path in `profiles.csv`.
+Files are created automatically on first run.
 
 ---
 
@@ -189,18 +216,30 @@ Resumes are Base64-encoded and saved directly in `profiles.csv`; no external upl
 **Windows:** `netstat -ano | findstr :8080` → `taskkill /PID <PID> /F`
 **macOS/Linux:** `lsof -ti:8080 | xargs kill -9`
 
-### "Failed to fetch" or backend errors
-- Ensure `WebServer` is still running (check terminal for stack traces).
-- Hard‑refresh the browser (`Ctrl+F5` / `Cmd+Shift+R`).
+### “Failed to fetch” or backend errors
+- Ensure `WebServer` is running (check terminal for stack traces).
+- Hard‑refresh browser (`Ctrl+F5` / `Cmd+Shift+R`).
 
 ### PDF upload returns 400
-- Only `.txt`, `.pdf`, `.docx` are accepted (max 5 MB).
-- Scanned or corrupted PDFs that OCR cannot read will prompt re‑upload as DOCX/TXT.
+- Only valid **PDF** files are accepted (max 5 MB).
+- Corrupted or image‑only PDFs are rejected with a clear error message.
 
-### OCR dependencies not found
-Run the setup script manually:
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup-portable-ocr.ps1
-```
+### Tests fail to connect
+- Make sure the web server is started first in a separate terminal.
+- Confirm that `localhost:8080` is accessible.
 
 ---
+
+## Documentation
+Full Javadoc documentation is available in the `docs/` folder.
+To regenerate after code changes:
+```bash
+javadoc -d docs -encoding UTF-8 -sourcepath src -subpackages model:dao src/Main.java src/WebServer.java
+```
+Open `docs/index.html` in a browser to view.
+
+---
+
+**Contributors:**
+Xuanchen Liu · Jing Luo · Jiayi Liu · Xiaopeng Tan · Yankai Wang · JianCheng Dong
+```

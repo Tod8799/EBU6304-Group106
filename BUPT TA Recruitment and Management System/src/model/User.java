@@ -3,8 +3,8 @@ package model;
 /**
  * Represents a system user with an ID, email, password, and role.
  * <p>
- * Roles are "TA", "MO", or "Admin".
- * This is a simple data class used by {@link dao.UserDAO} for authentication.
+ * Roles are "TA", "MO", or "Admin". This is a simple data class
+ * used by {@link dao.UserDAO} for authentication and user management.
  * </p>
  */
 public class User {
@@ -42,7 +42,6 @@ public class User {
 
     /**
      * Returns a CSV representation: id,email,password,role
-     *
      * @return comma-separated line
      */
     @Override
