@@ -138,7 +138,7 @@ java -cp out E2EBusinessLogicTest
 |-------|--------------------|----------|
 | Admin | admin@bupt.edu     | admin123 |
 | MO    | mo@bupt.edu        | mo123    |
-| TA    | ta@bupt.edu        | ta123    |
+| TA    | ta@bupt.edu        | ta1234   |
 
 These accounts are seeded in `data/users.csv`. Passwords are stored in plain text for demonstration only.
 New TA accounts can be created via the registration page.
