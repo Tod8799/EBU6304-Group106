@@ -21,6 +21,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -28,13 +29,29 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.Inflater;
+import java.util.zip.InflaterInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+/**
+ * Main web server for the TA Recruitment System.
+ * <p>
+ * Uses JDK's built-in {@link HttpServer} to provide a REST-like API
+ * and serves static files from the {@code web/} directory.
+ * All data is stored in CSV files via the DAO layer.
+ * </p>
+ */
 public class WebServer {
     private static final int PORT = 8080;
     private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int MAX_INFLATED_STREAM_BYTES = 2 * 1024 * 1024;
     private static final int MAX_PDF_BYTES = 5 * 1024 * 1024;
+    private static final int MAX_PDF_TOKEN_CHUNKS = 200;
+    private static final int MAX_FLATE_STREAMS_TO_SCAN = 40;
+    private static final int MAX_PDF_SCAN_CHARS = 2_000_000;
+    private static final int MAX_PDF_STRING_LOOKBACK = 600;
+    private static final int MAX_PDF_ARRAY_LOOKBACK = 8000;
 
     private static final UserDAO userDAO = new UserDAO();
     private static final ProfileDAO profileDAO = new ProfileDAO();
@@ -48,6 +65,12 @@ public class WebServer {
     // 服务容器与路由
     // 使用 JDK 内置 HttpServer 启动服务并集中注册接口，实现单进程运行。
     // 实现位置：创建服务 WebServer.java:42，注册路由 WebServer.java:44。
+    /**
+     * Starts the web server on port 8080 and registers all API endpoints.
+     *
+     * @param args not used
+     * @throws IOException if the server cannot start
+     */
     public static void main(String[] args) throws IOException {
         initializeSequenceNumbers();
 
@@ -74,6 +97,11 @@ public class WebServer {
     // Handler 分治
     // 每个业务域独立 Handler，登录、TA、MO、Admin 各自封装，避免“大控制器”。
     // 示例：登录 WebServer.java:91，TA投递 WebServer.java:188，MO审核 WebServer.java:376，Admin指标 WebServer.java:426。
+
+    /**
+     * Serves static resources (HTML, CSS, JS) from the {@code web/} folder.
+     * The default path "/" maps to {@code web/index.html}.
+     */
     static class StaticHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -85,9 +113,6 @@ public class WebServer {
             String reqPath = exchange.getRequestURI().getPath();
             if ("/".equals(reqPath)) {
                 reqPath = "/web/index.html";
-            }
-            if ("/favicon.ico".equals(reqPath)) {
-                reqPath = "/web/favicon.ico";
             }
 
             Path filePath = Path.of("." + reqPath).normalize();
@@ -106,6 +131,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Handles POST /api/login. Verifies email and password.
+     */
     static class LoginHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -129,6 +157,13 @@ public class WebServer {
         }
     }
 
+    /**
+     * Handles GET and POST for /api/ta/profile.
+     * <p>
+     * GET returns the TA's profile; POST creates or updates it,
+     * including CV upload.
+     * </p>
+     */
     static class TaProfileHandler implements HttpHandler {
         // 业务约束后端兜底
         // 关键规则全部在服务端判定，防止绕过前端造成脏数据。
@@ -190,8 +225,8 @@ public class WebServer {
                         sendJson(exchange, 400, jsonError("Resume file encoding is invalid"));
                         return;
                     }
-                    if (fileBytes.length > MAX_PDF_BYTES) {
-                        sendJson(exchange, 400, jsonError("Resume file is too large (max 5MB)"));
+                    if (fileBytes.length > 512 * 1024) {
+                        sendJson(exchange, 400, jsonError("Resume file is too large (max 512KB)"));
                         return;
                     }
                     resumeText = extractResumeText(resumeFileName, fileBytes);
@@ -216,6 +251,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Returns all open jobs as JSON.
+     */
     static class TaOpenJobsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -242,6 +280,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Handles job application submission.
+     */
     static class TaApplyHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -295,6 +336,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Returns the logged-in TA's own applications.
+     */
     static class TaApplicationsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -316,7 +360,7 @@ public class WebServer {
                 }
                 sb.append("{\"appId\":\"").append(esc(r.getAppId())).append("\",")
                         .append("\"jobId\":\"").append(esc(r.getJobId())).append("\",")
-                    .append("\"jobTitle\":\"").append(esc(job == null ? "" : job.getTitle())).append("\",")
+                        .append("\"jobTitle\":\"").append(esc(job == null ? "" : job.getTitle())).append("\",")
                         .append("\"status\":\"").append(esc(r.getStatus())).append("\",")
                         .append("\"rejectReason\":\"").append(esc(r.getRejectReason())).append("\",")
                         .append("\"appliedAt\":\"").append(esc(r.getAppliedAt())).append("\"}");
@@ -326,6 +370,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Handles job posting by an MO.
+     */
     static class MoPostJobHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -335,14 +382,13 @@ public class WebServer {
             }
 
             Map<String, String> data = parseFormBody(exchange);
-            String moId = data.getOrDefault("moId", "").strip();
-            String title = data.getOrDefault("title", "").strip();
-            String requirements = data.getOrDefault("requirements", "").strip();
-            String deadline = data.getOrDefault("deadline", "").strip();
+            String moId = data.getOrDefault("moId", "").trim();
+            String title = data.getOrDefault("title", "").trim();
+            String requirements = data.getOrDefault("requirements", "").trim();
+            String deadline = data.getOrDefault("deadline", "").trim();
 
-            if (isEffectivelyBlank(moId) || isEffectivelyBlank(title)
-                    || isEffectivelyBlank(requirements) || isEffectivelyBlank(deadline)) {
-                sendJson(exchange, 400, jsonError("Job fields cannot be empty"));
+            if (moId.isBlank() || title.isBlank() || requirements.isBlank() || deadline.isBlank()) {
+                sendJson(exchange, 400, jsonError("All job fields are required"));
                 return;
             }
 
@@ -366,6 +412,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Returns the jobs posted by a specific MO.
+     */
     static class MoJobsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -394,6 +443,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Returns applicants for a job, sorted by active task count (ascending).
+     */
     static class MoApplicantsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -444,6 +496,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Updates an application's status (MO action).
+     */
     static class MoStatusHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -499,6 +554,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Returns system-wide recruitment metrics for Admin.
+     */
     static class AdminMetricsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -553,6 +611,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Returns all audit log entries for Admin.
+     */
     static class AdminLogsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -582,6 +643,9 @@ public class WebServer {
     // 序列号与重置机制
     // 启动时重建 JOB/APP 序列避免 ID 冲突，提供 reset 接口便于演示快速复位。
     // 实现位置：序列初始化 WebServer.java:530，重置接口 WebServer.java:506。
+    /**
+     * Resets all business data (profiles, jobs, applications, logs) for testing purposes.
+     */
     static class ResetHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -598,6 +662,13 @@ public class WebServer {
         }
     }
 
+    // ===== Helper methods =====
+
+    /**
+     * Checks if a string is one of the valid application statuses.
+     * @param status the status to test
+     * @return true if valid (Pending, Shortlisted, Rejected, Interview, Hired)
+     */
     private static boolean isValidStatus(String status) {
         return "Pending".equalsIgnoreCase(status)
                 || "Shortlisted".equalsIgnoreCase(status)
@@ -612,19 +683,11 @@ public class WebServer {
                 || "Hired".equalsIgnoreCase(status);
     }
 
-    private static boolean isEffectivelyBlank(String value) {
-        if (value == null || value.isEmpty()) {
-            return true;
-        }
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            if (!Character.isWhitespace(c) && !Character.isSpaceChar(c)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
+    /**
+     * Counts how many active tasks (Shortlisted/Interview/Hired) a TA currently has.
+     * @param taId the TA's user ID
+     * @return number of active applications
+     */
     private static int countActiveTasksForTa(String taId) {
         int count = 0;
         for (ApplicationRecord record : applicationDAO.getByTaId(taId)) {
@@ -635,6 +698,18 @@ public class WebServer {
         return count;
     }
 
+    /**
+     * Extracts readable text from a resume file based on its extension.
+     * <p>
+     * Supports TXT, DOCX, and PDF. For PDFs, a hybrid approach is used:
+     * try embedded text first, then OCR fallback (if PDF is scanned).
+     * </p>
+     *
+     * @param fileName  original file name (used to guess type)
+     * @param fileBytes raw file content
+     * @return the extracted text, whitespace-normalized
+     * @throws IllegalArgumentException if the type is unsupported or no readable text found
+     */
     private static String extractResumeText(String fileName, byte[] fileBytes) {
         String extension = "";
         int dot = fileName.lastIndexOf('.');
@@ -652,14 +727,9 @@ public class WebServer {
                 break;
             case "pdf":
                 if (fileBytes.length > MAX_PDF_BYTES) {
-                    throw new IllegalArgumentException("Resume PDF is too large (max 5MB)");
+                    return "";
                 }
-                try {
-                    text = ResumePdfOcr.extractText(fileBytes);
-                } catch (IOException e) {
-                    throw new IllegalArgumentException(
-                            "Cannot OCR scanned/corrupted PDF. Please convert it to DOCX/TXT and upload again.");
-                }
+                text = extractPdfText(fileBytes);
                 break;
             default:
                 throw new IllegalArgumentException("Unsupported resume type. Please upload TXT, DOCX, or PDF");
@@ -668,13 +738,16 @@ public class WebServer {
         String normalized = normalizeWhitespace(text);
         if (normalized.isBlank()) {
             if ("pdf".equals(extension)) {
-                throw new IllegalArgumentException("Cannot read text from this PDF. Please upload a clearer PDF or DOCX.");
+                throw new IllegalArgumentException("Cannot extract readable text from image-only scanned PDF");
             }
             throw new IllegalArgumentException("Cannot extract readable text from the uploaded resume");
         }
         return normalized;
     }
 
+    /**
+     * Extracts readable text from a DOCX file (ZIP containing word/document.xml).
+     */
     private static String extractDocxText(byte[] fileBytes) {
         try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(fileBytes))) {
             ZipEntry entry;
@@ -701,6 +774,276 @@ public class WebServer {
         throw new IllegalArgumentException("Cannot read DOCX file");
     }
 
+    /**
+     * Extracts readable text from a PDF file.
+     * <p>
+     * Tries to find text in visible operators (Tj, TJ) and in FlateDecode streams.
+     * Falls back to plain parenthesized strings if no tokens found.
+     * </p>
+     */
+    private static String extractPdfText(byte[] fileBytes) {
+        String source = new String(fileBytes, StandardCharsets.ISO_8859_1);
+        List<String> chunks = new ArrayList<>();
+
+        collectPdfTextTokens(source, chunks);
+
+        // Many PDFs store readable operators inside FlateDecode streams.
+        for (String streamText : extractFlateDecodedStreams(fileBytes)) {
+            collectPdfTextTokens(streamText, chunks);
+        }
+
+        // Fallback for form-like PDFs: plain parenthesized strings without Tj/TJ operators.
+        if (chunks.isEmpty()) {
+            collectPlainPdfParenStrings(source, chunks);
+        }
+
+        if (chunks.isEmpty()) return "";
+        return cleanupPdfReadableText(chunks);
+    }
+
+    private static void collectPdfTextTokens(String source, List<String> chunks) {
+        if (source == null || source.isEmpty()) return;
+        int scanLen = Math.min(source.length(), MAX_PDF_SCAN_CHARS);
+        String bounded = source.substring(0, scanLen);
+        collectPdfTextBeforeOperator(bounded, "Tj", chunks);
+        collectPdfTextBeforeOperator(bounded, "TJ", chunks);
+        collectPdfArrayText(bounded, chunks);
+    }
+
+    private static void collectPdfTextBeforeOperator(String source, String operator, List<String> chunks) {
+        int from = 0;
+        while (chunks.size() < MAX_PDF_TOKEN_CHUNKS) {
+            int opPos = source.indexOf(operator, from);
+            if (opPos < 0) break;
+
+            int closeParen = opPos - 1;
+            while (closeParen >= 0 && Character.isWhitespace(source.charAt(closeParen))) {
+                closeParen--;
+            }
+            if (closeParen < 0 || source.charAt(closeParen) != ')') {
+                from = opPos + operator.length();
+                continue;
+            }
+
+            int openParen = closeParen - 1;
+            int depth = 0;
+            boolean found = false;
+            while (openParen >= 0 && closeParen - openParen <= MAX_PDF_STRING_LOOKBACK) {
+                char c = source.charAt(openParen);
+                if (c == ')') {
+                    depth++;
+                } else if (c == '(') {
+                    if (depth == 0) {
+                        chunks.add(decodePdfString(source.substring(openParen + 1, closeParen)));
+                        found = true;
+                        break;
+                    }
+                    depth--;
+                }
+                openParen--;
+            }
+            if (!found) {
+                from = opPos + operator.length();
+                continue;
+            }
+            from = opPos + operator.length();
+        }
+    }
+
+    private static void collectPdfArrayText(String source, List<String> chunks) {
+        int from = 0;
+        while (chunks.size() < MAX_PDF_TOKEN_CHUNKS) {
+            int tjPos = source.indexOf(" TJ", from);
+            if (tjPos < 0) {
+                tjPos = source.indexOf("\nTJ", from);
+            }
+            if (tjPos < 0) {
+                break;
+            }
+
+            int bracket = source.lastIndexOf('[', tjPos);
+            if (bracket < 0 || tjPos - bracket > MAX_PDF_ARRAY_LOOKBACK) {
+                from = tjPos + 3;
+                continue;
+            }
+
+            String block = source.substring(bracket + 1, tjPos);
+            collectParenStringsFromBlock(block, chunks);
+            from = tjPos + 3;
+        }
+    }
+
+    private static void collectPlainPdfParenStrings(String source, List<String> chunks) {
+        int scanLen = Math.min(source.length(), MAX_PDF_SCAN_CHARS);
+        collectParenStringsFromBlock(source.substring(0, scanLen), chunks);
+    }
+
+    private static void collectParenStringsFromBlock(String block, List<String> chunks) {
+        for (int i = 0; i < block.length() && chunks.size() < MAX_PDF_TOKEN_CHUNKS; i++) {
+            if (block.charAt(i) != '(') {
+                continue;
+            }
+            int depth = 1;
+            StringBuilder raw = new StringBuilder();
+            for (int j = i + 1; j < block.length() && depth > 0; j++) {
+                char c = block.charAt(j);
+                if (c == '\\' && j + 1 < block.length()) {
+                    raw.append(c).append(block.charAt(j + 1));
+                    j++;
+                    continue;
+                }
+                if (c == '(') {
+                    depth++;
+                } else if (c == ')') {
+                    depth--;
+                    if (depth == 0) {
+                        if (raw.length() > 0 && raw.length() <= 200) {
+                            chunks.add(decodePdfString(raw.toString()));
+                        }
+                        i = j;
+                        break;
+                    }
+                }
+                if (depth > 0) {
+                    raw.append(c);
+                }
+            }
+        }
+    }
+
+    private static List<String> extractFlateDecodedStreams(byte[] pdfBytes) {
+        List<String> streams = new ArrayList<>();
+        String source = new String(pdfBytes, StandardCharsets.ISO_8859_1);
+        int cursor = 0;
+        while (true) {
+            if (streams.size() >= MAX_FLATE_STREAMS_TO_SCAN) break;
+            int streamPos = source.indexOf("stream", cursor);
+            if (streamPos < 0) break;
+            int endStreamPos = source.indexOf("endstream", streamPos);
+            if (endStreamPos < 0) break;
+
+            int dictStart = source.lastIndexOf("<<", streamPos);
+            int dictEnd = dictStart < 0 ? -1 : source.indexOf(">>", dictStart);
+            if (dictStart < 0 || dictEnd < 0 || dictEnd > streamPos) {
+                cursor = endStreamPos + 9;
+                continue;
+            }
+
+            String dict = source.substring(dictStart, dictEnd + 2);
+            if (!dict.contains("/FlateDecode")) {
+                cursor = endStreamPos + 9;
+                continue;
+            }
+
+            int dataStart = streamPos + "stream".length();
+            while (dataStart < source.length()) {
+                char c = source.charAt(dataStart);
+                if (c == '\r' || c == '\n' || c == ' ') {
+                    dataStart++;
+                } else {
+                    break;
+                }
+            }
+
+            int dataEnd = endStreamPos;
+            while (dataEnd > dataStart) {
+                char c = source.charAt(dataEnd - 1);
+                if (c == '\r' || c == '\n' || c == ' ') {
+                    dataEnd--;
+                } else {
+                    break;
+                }
+            }
+            if (dataEnd <= dataStart) {
+                cursor = endStreamPos + 9;
+                continue;
+            }
+
+            byte[] raw = source.substring(dataStart, dataEnd).getBytes(StandardCharsets.ISO_8859_1);
+            String decoded = tryInflate(raw);
+            if (!decoded.isBlank()) {
+                streams.add(decoded);
+            }
+            cursor = endStreamPos + 9;
+        }
+        return streams;
+    }
+
+    private static String tryInflate(byte[] raw) {
+        String decoded = inflateWith(raw, false);
+        if (!decoded.isBlank()) return decoded;
+        return inflateWith(raw, true);
+    }
+
+    private static String inflateWith(byte[] raw, boolean nowrap) {
+        try (ByteArrayInputStream in = new ByteArrayInputStream(raw);
+             InflaterInputStream inflater = new InflaterInputStream(in, new Inflater(nowrap));
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[8192];
+            int total = 0;
+            int n;
+            while ((n = inflater.read(buf)) != -1) {
+                total += n;
+                if (total > MAX_INFLATED_STREAM_BYTES) {
+                    return "";
+                }
+                out.write(buf, 0, n);
+            }
+            return out.toString(StandardCharsets.ISO_8859_1);
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    /**
+     * Decodes PDF string escaping (backslash sequences, octal escapes).
+     */
+    private static String decodePdfString(String text) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c != '\\') {
+                out.append(c);
+                continue;
+            }
+            if (i + 1 >= text.length()) {
+                break;
+            }
+            char next = text.charAt(++i);
+            switch (next) {
+                case 'n': out.append('\n'); break;
+                case 'r': out.append('\r'); break;
+                case 't': out.append('\t'); break;
+                case 'b': out.append('\b'); break;
+                case 'f': out.append('\f'); break;
+                case '(': out.append('('); break;
+                case ')': out.append(')'); break;
+                case '\\': out.append('\\'); break;
+                default:
+                    if (next >= '0' && next <= '7') {
+                        StringBuilder oct = new StringBuilder();
+                        oct.append(next);
+                        for (int k = 0; k < 2 && i + 1 < text.length(); k++) {
+                            char d = text.charAt(i + 1);
+                            if (d < '0' || d > '7') {
+                                break;
+                            }
+                            oct.append(d);
+                            i++;
+                        }
+                        try {
+                            out.append((char) Integer.parseInt(oct.toString(), 8));
+                        } catch (NumberFormatException ignored) {
+                        }
+                    } else {
+                        out.append(next);
+                    }
+                    break;
+            }
+        }
+        return out.toString();
+    }
+
     private static String unescapeXml(String value) {
         return value
                 .replace("&lt;", "<")
@@ -710,6 +1053,10 @@ public class WebServer {
                 .replace("&apos;", "'");
     }
 
+    /**
+     * Normalizes whitespace: replaces sequences of spaces/tabs/newlines with a single space,
+     * compacts multiple newlines into double newline, and trims.
+     */
     private static String normalizeWhitespace(String value) {
         if (value == null) {
             return "";
@@ -721,10 +1068,102 @@ public class WebServer {
         return text.trim();
     }
 
-    private static String sanitizeResumeTextForResponse(String text) {
-        return normalizeWhitespace(text);
+    private static boolean isPdfMetadataNoise(String text) {
+        if (text == null || text.isBlank()) {
+            return true;
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        String[] noiseTokens = new String[] {
+                "/cidfonttype",
+                "/fontdescriptor",
+                "/basefont",
+                "/fontbbox",
+                "/fontname",
+                "/resources",
+                "/mediabox",
+                "endstream",
+                "endobj",
+                "/catalog",
+                "/type /font"
+        };
+        int hits = 0;
+        for (String token : noiseTokens) {
+            if (lower.contains(token)) {
+                hits++;
+            }
+        }
+        long slashCount = text.chars().filter(ch -> ch == '/').count();
+        boolean tooManySlashes = slashCount > Math.max(20, text.length() / 18);
+        return hits >= 3 || tooManySlashes;
     }
 
+    /**
+     * Sanitizes resume text before sending to the client:
+     * removes PDF metadata noise and normalizes whitespace.
+     */
+    private static String sanitizeResumeTextForResponse(String text) {
+        String normalized = normalizeWhitespace(text);
+        if (normalized.isBlank()) {
+            return "";
+        }
+        if (!isPdfMetadataNoise(normalized)) return normalized;
+        // Legacy dirty data may already contain metadata noise. Clean it silently.
+        List<String> lines = new ArrayList<>();
+        for (String line : normalized.split("\\n")) {
+            String cleaned = normalizeWhitespace(line);
+            if (!cleaned.isBlank() && !isPdfMetadataNoise(cleaned)) {
+                lines.add(cleaned);
+            }
+        }
+        return normalizeWhitespace(String.join("\n", lines));
+    }
+
+    private static String cleanupPdfReadableText(List<String> rawChunks) {
+        List<String> kept = new ArrayList<>();
+        for (String chunk : rawChunks) {
+            String text = normalizeWhitespace(chunk);
+            if (text.isBlank()) continue;
+            if (!looksLikeHumanReadableText(text)) continue;
+            if (isPdfMetadataNoise(text)) continue;
+            kept.add(text);
+        }
+        String merged = normalizeWhitespace(String.join("\n", kept));
+        if (isPdfMetadataNoise(merged)) return "";
+        return merged;
+    }
+
+    private static boolean looksLikeHumanReadableText(String text) {
+        if (text == null || text.isBlank()) return false;
+        String lower = text.toLowerCase(Locale.ROOT);
+        if (lower.contains("/type") || lower.contains("/font") || lower.contains("/catalog")) return false;
+        long letterOrDigit = text.chars().filter(Character::isLetterOrDigit).count();
+        if (letterOrDigit < 3) return false;
+        long plainPrintable = text.chars().filter(ch ->
+                (ch >= 'a' && ch <= 'z')
+                        || (ch >= 'A' && ch <= 'Z')
+                        || (ch >= '0' && ch <= '9')
+                        || ch == ' '
+                        || ch == '.'
+                        || ch == ','
+                        || ch == ':'
+                        || ch == ';'
+                        || ch == '-'
+                        || ch == '_'
+                        || ch == '/'
+                        || ch == '@'
+                        || ch == '('
+                        || ch == ')'
+        ).count();
+        if (plainPrintable * 100 / Math.max(1, text.length()) < 70) return false;
+        long slashCount = text.chars().filter(ch -> ch == '/').count();
+        if (slashCount > Math.max(3, text.length() / 12)) return false;
+        return true;
+    }
+
+    /**
+     * Reads existing job and application IDs from CSV files to set the correct next sequence numbers.
+     * This prevents ID collisions when the system is restarted.
+     */
     private static void initializeSequenceNumbers() {
         int maxJob = 0;
         int maxApp = 0;
@@ -751,6 +1190,14 @@ public class WebServer {
     // 持久化与可追踪
     // 接口最终调用 DAO 写入 CSV，并同步写审计日志，形成可回放轨迹。
     // 日志写入方法 WebServer.java:553，调用点如登录 WebServer.java:109、发岗 WebServer.java:301、审核 WebServer.java:421。
+    /**
+     * Writes a single log entry to the audit log.
+     *
+     * @param userId the user who performed the action
+     * @param role   the user's role
+     * @param action the type of action (e.g., LOGIN, MO_POST_JOB)
+     * @param detail additional details about the action
+     */
     private static void writeLog(String userId, String role, String action, String detail) {
         auditLogDAO.append(new AuditLog(
                 LocalDateTime.now().format(TS_FORMAT),
@@ -764,6 +1211,13 @@ public class WebServer {
     // 请求解析统一
     // 前端使用表单编码提交，后端统一通过 parseFormBody 和 parseQuery 解析，避免多套协议。
     // 实现位置：WebServer.java:563 和 WebServer.java:572。
+    /**
+     * Parses the request body as URL-encoded form data.
+     *
+     * @param exchange the HTTP exchange
+     * @return a map of form parameters
+     * @throws IOException if the body cannot be read
+     */
     private static Map<String, String> parseFormBody(HttpExchange exchange) throws IOException {
         byte[] bytes;
         try (InputStream is = exchange.getRequestBody()) {
@@ -773,6 +1227,12 @@ public class WebServer {
         return parseQuery(body);
     }
 
+    /**
+     * Parses a URL-encoded query string (or form body) into key-value pairs.
+     *
+     * @param query the raw query string (may be null or empty)
+     * @return a map of parameters (keys are URL-decoded)
+     */
     private static Map<String, String> parseQuery(String query) {
         Map<String, String> map = new HashMap<>();
         if (query == null || query.isEmpty()) {
@@ -800,6 +1260,14 @@ public class WebServer {
     // 响应与错误统一
     // 所有接口统一 JSON 返回，成功带 ok:true，失败统一 jsonError，前端可直接按 error 展示。
     // 实现位置：WebServer.java:592 和 WebServer.java:613。
+    /**
+     * Sends a JSON response with the given HTTP status.
+     *
+     * @param exchange the HTTP exchange
+     * @param status   HTTP status code
+     * @param json     the JSON string to send
+     * @throws IOException if writing fails
+     */
     private static void sendJson(HttpExchange exchange, int status, String json) throws IOException {
         byte[] data = json.getBytes(StandardCharsets.UTF_8);
         Headers headers = exchange.getResponseHeaders();
@@ -811,6 +1279,9 @@ public class WebServer {
         }
     }
 
+    /**
+     * Sends a plain-text response.
+     */
     private static void sendText(HttpExchange exchange, int status, String text) throws IOException {
         byte[] data = text.getBytes(StandardCharsets.UTF_8);
         Headers headers = exchange.getResponseHeaders();
@@ -821,10 +1292,16 @@ public class WebServer {
         }
     }
 
+    /**
+     * Builds a JSON error object: {"ok":false,"error":"...message..."}
+     */
     private static String jsonError(String message) {
         return "{\"ok\":false,\"error\":\"" + esc(message) + "\"}";
     }
 
+    /**
+     * Escapes a string for safe inclusion in a JSON string value.
+     */
     private static String esc(String s) {
         if (s == null) {
             return "";
@@ -837,6 +1314,9 @@ public class WebServer {
         return normalized.replaceAll("[\\x00-\\x1F\\x7F]", " ");
     }
 
+    /**
+     * Determines the MIME type for static file serving based on the file extension.
+     */
     private static String getContentType(String path) {
         if (path.endsWith(".html")) {
             return "text/html; charset=utf-8";

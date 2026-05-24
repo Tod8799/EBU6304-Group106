@@ -11,9 +11,18 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Data access object for TA profiles stored in {@code data/profiles.csv}.
+ * <p>
+ * Provides methods to read all profiles, find a profile by TA ID, and save or update a profile.
+ * </p>
+ */
 public class ProfileDAO {
     private static final String FILE_PATH = "data/profiles.csv";
 
+    /**
+     * Creates the DAO and ensures the CSV file exists.
+     */
     public ProfileDAO() {
         ensureFile();
     }
@@ -30,6 +39,11 @@ public class ProfileDAO {
         }
     }
 
+    /**
+     * Returns all profiles stored in the CSV file.
+     *
+     * @return list of all TA profiles
+     */
     public List<Profile> getAllProfiles() {
         List<Profile> profiles = new ArrayList<>();
         try (BufferedReader br = new BufferedReader(new FileReader(FILE_PATH))) {
@@ -59,6 +73,12 @@ public class ProfileDAO {
         return profiles;
     }
 
+    /**
+     * Finds a TA's profile by their user ID.
+     *
+     * @param taId the TA ID (e.g., "T001")
+     * @return the profile or {@code null} if none exists
+     */
     public Profile getByTaId(String taId) {
         for (Profile profile : getAllProfiles()) {
             if (profile.getTaId().equalsIgnoreCase(taId)) {
@@ -68,6 +88,11 @@ public class ProfileDAO {
         return null;
     }
 
+    /**
+     * Saves a new profile or updates an existing one for the same TA.
+     *
+     * @param profile the profile to save or update
+     */
     public void saveOrUpdate(Profile profile) {
         List<Profile> all = getAllProfiles();
         boolean updated = false;

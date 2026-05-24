@@ -11,13 +11,26 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Data access object for audit logs stored in {@code data/logs.csv}.
+ * <p>
+ * Provides methods to append new logs and to read all logs.
+ * The file is automatically created if it does not exist.
+ * </p>
+ */
 public class AuditLogDAO {
     private static final String FILE_PATH = "data/logs.csv";
 
+    /**
+     * Creates a new DAO and ensures the log file exists.
+     */
     public AuditLogDAO() {
         ensureFile();
     }
 
+    /**
+     * Creates the log file (and parent directory) if they are missing.
+     */
     private void ensureFile() {
         File file = new File(FILE_PATH);
         if (!file.exists()) {
@@ -30,6 +43,11 @@ public class AuditLogDAO {
         }
     }
 
+    /**
+     * Appends a new log entry to the end of the CSV file.
+     *
+     * @param log the audit log to write
+     */
     public void append(AuditLog log) {
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(FILE_PATH, true))) {
             bw.write(log.toCsvLine());
@@ -39,6 +57,11 @@ public class AuditLogDAO {
         }
     }
 
+    /**
+     * Reads all log entries from the CSV file.
+     *
+     * @return a list of audit logs, in the order they were written
+     */
     public List<AuditLog> getAllLogs() {
         List<AuditLog> logs = new ArrayList<>();
         try (BufferedReader br = new BufferedReader(new FileReader(FILE_PATH))) {
