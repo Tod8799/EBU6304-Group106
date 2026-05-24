@@ -7,18 +7,6 @@
 |Nyog39  | Yankai Wang | 231223737| 
 |Duck0114  | JianCheng Dong | 231223357 |
 
-你的 README 需要更新以匹配最终代码。以下是修改后的版本（可直接替换）：
-
-```markdown
-| GitHub Username | Student Name | QMID |
-| --- | --- | --- |
-| Tod8799 | Xuanchen Liu | 231223450 |
-| Monicatwentytwo | Jing Luo | 231223438 |
-| liujy921 | Jiayi Liu | 231223276 |
-| TXP | Xiaopeng Tan | 231223379 |
-| Nyog39 | Yankai Wang | 231223737 |
-| Duck0114 | JianCheng Dong | 231223357 |
-
 # TA Recruitment System
 
 A lightweight role‑based Teaching Assistant recruitment web application for the EBU6304 Software Engineering group project. Built with Java's built‑in `HttpServer`, static HTML/CSS/JavaScript frontend, and CSV file persistence. **No Spring Boot, no external database.**
