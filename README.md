@@ -243,7 +243,3 @@ Open `docs/index.html` in a browser to view.
 **Contributors:**
 Xuanchen Liu · Jing Luo · Jiayi Liu · Xiaopeng Tan · Yankai Wang · JianCheng Dong
 ```
-
-
-*For further details, refer to the project report or source code comments.*
-```
